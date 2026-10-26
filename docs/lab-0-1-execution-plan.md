@@ -20,8 +20,6 @@
 | B | `AI_EMBED` 单行与跨行批量 | 20 |
 | C | Ollama Provider、`AI_RERANK` | 20 |
 
-成员同时负责对应实现、测试和 PR 说明。评审采用循环关系：A 评审 B，B 评审 C，C 评审 A；复杂公共改动再增加一名评审。
-
 ## 接口与实现边界
 
 - `AI_PROMPT(template, ...)` 扩展 `TEXT`/`LONGTEXT`、JSON、嵌套和占位符处理，保持 JSON 返回类型。
