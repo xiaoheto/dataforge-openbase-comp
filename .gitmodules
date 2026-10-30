@@ -1,8 +1,8 @@
 [submodule "projects/seekdb"]
 	path = projects/seekdb
-	url = https://github.com/xiaoheto/seekdb.git
+	url = https://github.com/xiaoheto/seekdb-2026.git
 	branch = 2026-competition
 [submodule "projects/powercontext"]
 	path = projects/powercontext
-	url = https://github.com/xiaoheto/powercontext.git
+	url = https://github.com/xiaoheto/powercontext-2026.git
 	branch = 2026-competition
