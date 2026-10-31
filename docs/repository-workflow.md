@@ -18,18 +18,33 @@ git -C projects/powercontext remote set-url --push origin git@github.com:xiaohet
 
 如果 `upstream` 已存在，不要重复添加；用 `git remote -v` 核对地址。
 
-### 推送超时：改走 443 端口
+### 推送走 HTTPS（推荐）
 
-SSH 推送报 `ssh: connect to host github.com port 22: Connection timed out` 时，多半是
-出口网络封禁或限速了 22 端口。改用 GitHub 的 443 端口入口：
+`gh` CLI 已登录时，HTTPS 推送无需任何额外配置，且不受 SSH 端口被限速的影响。
+fetch 与 push URL 可以不一致——拉取用公开 HTTPS，推送用带凭据的 HTTPS：
+
+```bash
+git -C projects/seekdb remote set-url --push origin https://github.com/xiaoheto/seekdb-2026.git
+git -C projects/seekdb credential fill   # 能解析出 username/password 即凭据就绪
+```
+
+### SSH 推送异常时的排查
+
+`git@github.com:` 形式的 push URL 固定走 22 端口，该端口常被出口网络限速，表现为
+`ssh: connect to host github.com port 22: Connection timed out`。改走 443 端口入口：
 
 ```bash
 git -C projects/seekdb remote set-url --push origin ssh://git@ssh.github.com:443/xiaoheto/seekdb-2026.git
-ssh -T -p 443 git@ssh.github.com   # 出现 "Hi <user>! You've successfully authenticated" 即正常
+ssh -o StrictHostKeyChecking=accept-new -T -p 443 git@ssh.github.com
 ```
 
-`git@github.com:` 形式的 push URL 固定走 22 端口，无法指定端口，因此上面必须写成
-`ssh://` 形式。拉取仍保持 HTTPS，不受影响。
+`git@github.com:` 是 scp 语法，无法指定端口，因此必须写成 `ssh://` 形式。
+`StrictHostKeyChecking=accept-new` 用于首次连接 `ssh.github.com` 时自动写入
+`known_hosts`，避免 ssh 停在主机密钥确认提示上。
+
+若 `ssh -v` 显示连接建立后卡在握手阶段，多半是 WSL2 的 NAT 出网问题（conntrack
+耗尽或 MTU 失配），而非 GitHub 侧问题。在 `/etc/wsl.conf` 启用
+`networkingMode=mirrored` 后执行 `wsl --shutdown` 可根治。
 
 ## 比赛基线
 
