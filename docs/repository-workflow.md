@@ -40,7 +40,28 @@ git -C projects/powercontext merge --ff-only upstream/2026-competition
 - `lab1/integration`：seekdb Lab 1 集成分支，只接受经过评审的 PR。
 - 功能分支：`lab1/ai-prompt`、`lab1/ai-complete`、`lab1/ai-embed-single`、`lab1/ai-embed-batch`、`lab1/ollama`、`lab1/ai-rerank`。
 - 每个 PR 只对应一个评分项，附构建命令、目标测试和实际结果，并由至少一名非作者评审。
+- Part A 一次提交覆盖 `AI_PROMPT` 与 `AI_COMPLETE` 两个评分项，两者都依赖 `ob_ai_func_utils.cpp` 的模板替换逻辑，拆分会引入额外冲突。
 - 公共 AI 工具代码使用小 PR 先行合并；依赖分支每天 rebase，避免长期并行修改同一区域。
+
+## 换行符
+
+seekdb 仓库的 `.gitattributes` 没有设置 `text`/`eol` 属性，因此行尾完全取决于本地配置。父仓库已设 `* text=auto eol=lf`，但该规则不作用于 submodule。
+
+提交功能代码前，确认 seekdb 工作区使用 LF：
+
+```bash
+git -C projects/seekdb config --local core.autocrlf false
+git -C projects/seekdb config --local core.eol lf
+```
+
+若改动文件的行尾被整体改写，diff 会从几十行膨胀到几千行，评审无法进行。提交前用下面两条命令核对：
+
+```bash
+git -C projects/seekdb diff --cached --stat
+git -C projects/seekdb diff --cached --ignore-all-space --stat
+```
+
+两条结果应一致。
 
 ## 更新父仓库指针
 
