@@ -16,11 +16,17 @@ not a model: every response is deterministic and content independent.
 """
 
 import json
+import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DEFAULT_DIMENSION = 4
 COMPLETION_TEXT = "mock completion response"
+
+# When enabled the completion responses echo the prompt that the server
+# actually received. It makes the template substitution observable, so a test
+# can assert the exact text that was sent instead of only its length.
+ECHO_PROMPT = os.environ.get("MOCK_AI_ECHO_PROMPT") == "1"
 
 
 def _embedding(dimension, seed):
@@ -58,10 +64,13 @@ class MockAIHandler(BaseHTTPRequestHandler):
     # -- OpenAI compatible completion -------------------------------------
     def _handle_openai_chat(self, body):
         content = COMPLETION_TEXT
+        user_content = ""
         for message in reversed(body.get("messages") or []):
             if isinstance(message, dict) and message.get("role") == "user":
-                content = COMPLETION_TEXT
+                user_content = message.get("content") or ""
                 break
+        if ECHO_PROMPT and user_content:
+            content = user_content
         self._send_json({
             "id": "chatcmpl-mock",
             "object": "chat.completion",
@@ -105,9 +114,12 @@ class MockAIHandler(BaseHTTPRequestHandler):
 
     # -- Ollama native completion -----------------------------------------
     def _handle_ollama_generate(self, body):
+        content = COMPLETION_TEXT
+        if ECHO_PROMPT:
+            content = body.get("prompt") or content
         self._send_json({
             "model": body.get("model", "mock-model"),
-            "response": COMPLETION_TEXT,
+            "response": content,
             "done": True,
             "prompt_eval_count": 0,
             "eval_count": 0,
