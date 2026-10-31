@@ -6,7 +6,7 @@
 
 | 项目 | 记录 |
 | --- | --- |
-| seekdb 最终提交 | Part A 功能提交 `4b9d8905c`（分支 `lab1/ai-prompt`），基线 `5bce9e06d` |
+| seekdb 最终提交 | Part A 功能提交 `b6cc9ac51`（分支 `lab1/ai-prompt`），基线 `5bce9e06d` |
 | 父仓库提交 | 待填写 |
 | 操作系统 | Ubuntu 24.04.5 LTS x86_64 |
 | CPU / 内存 | 18 核 / 7.4 GiB，编译并行度 `-j2` |
@@ -34,7 +34,8 @@ Part A 只覆盖自身两个评分项，其余四项如实记为未运行。`ai_
 
 | 检查 | 命令 | 结果 | 备注 |
 | --- | --- | --- | --- |
-| 增量构建 | `./build.sh release --make -j2` | 通过 | 提交 `4b9d8905c` 涉及的 `unity_ob_sql_ob_sql_engine_expr_15` 编译单元重新编译通过，产物与改动前二进制对应的 `.o` 逐字节一致（md5 `d13bfcd5`），确认 LF 归一化不改变机器码 |
+| 增量构建 | `./build.sh release --make -j2` | 通过 | 提交 `b6cc9ac51` 涉及的 `unity_ob_sql_ob_sql_engine_expr_15` 编译单元重新编译通过（`-Werror` 无警告）；提交 `4b9d8905c` 的产物与改动前二进制对应的 `.o` 逐字节一致（md5 `d13bfcd5`），确认 LF 归一化不改变机器码 |
+| 重复占位符缓冲区回归 | `select ai_complete('enhance_complete', ai_prompt('{0}/{0}'));` | 未运行 | 修复前该表达式返回 `OB_BUF_NOT_ENOUGH`，修复后返回完整拼接结果；需在部署新二进制后复测 |
 | AI 函数目标 mysqltest | `./tools/deploy/obd.sh mysqltest -n single --disable-reboot --test-dir ./mysql_test/test_suite/ai_function/t --result-dir ./mysql_test/test_suite/ai_function/r --test-set ai_prompt` | 通过 | `obd.sh` 会切换到 `tools/deploy` 作为工作目录，路径不能重复写 `./tools/deploy/` 前缀 |
 | 完整 `ai_function` suite | `./tools/deploy/obd.sh mysqltest -n single --disable-reboot --suite ai_function` | 未运行 | 待 Part B、Part C 完成后补齐 |
 | 普通 SQL 冒烟 | 待填写 | 未运行 | 待填写 |

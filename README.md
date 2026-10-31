@@ -51,7 +51,7 @@ git -C projects/powercontext switch --track origin/2026-competition
 
 | 交付 | 分支 | 提交 | 状态 |
 | --- | --- | --- | --- |
-| Part A：`AI_PROMPT`、`AI_COMPLETE` | `lab1/ai-prompt` | `4b9d8905c` | 已实现，待评审 |
+| Part A：`AI_PROMPT`、`AI_COMPLETE` | `lab1/ai-prompt` | `b6cc9ac51` | 已实现，待评审 |
 | Part B：`AI_EMBED` 单行与跨行批量 | `lab1/ai-embed-*` | — | 未开始 |
 | Part C：Ollama Provider、`AI_RERANK` | `lab1/ollama`、`lab1/ai-rerank` | — | 未开始 |
 
