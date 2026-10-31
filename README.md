@@ -43,5 +43,16 @@ git -C projects/powercontext switch --track origin/2026-competition
 - [文档索引](docs/README.md)
 - [两周执行计划](docs/lab-0-1-execution-plan.md)
 - [仓库与 submodule 协作规范](docs/repository-workflow.md)
+- [Mock AI Service](tools/mock-ai-service/README.md)：本地运行公开测试所需服务
 
 不要在父仓库中直接复制 seekdb 或 PowerContext 源码。功能提交先进入对应 fork，再由父仓库更新 submodule 指针。
+
+## 当前进度
+
+| 交付 | 分支 | 提交 | 状态 |
+| --- | --- | --- | --- |
+| Part A：`AI_PROMPT`、`AI_COMPLETE` | `lab1/ai-prompt` | `4b9d8905c` | 已实现，待评审 |
+| Part B：`AI_EMBED` 单行与跨行批量 | `lab1/ai-embed-*` | — | 未开始 |
+| Part C：Ollama Provider、`AI_RERANK` | `lab1/ollama`、`lab1/ai-rerank` | — | 未开始 |
+
+`2026-competition` 分支只保留官方基线，不直接开发。
