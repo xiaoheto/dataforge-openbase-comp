@@ -18,6 +18,19 @@ git -C projects/powercontext remote set-url --push origin git@github.com:xiaohet
 
 如果 `upstream` 已存在，不要重复添加；用 `git remote -v` 核对地址。
 
+### 推送超时：改走 443 端口
+
+SSH 推送报 `ssh: connect to host github.com port 22: Connection timed out` 时，多半是
+出口网络封禁或限速了 22 端口。改用 GitHub 的 443 端口入口：
+
+```bash
+git -C projects/seekdb remote set-url --push origin ssh://git@ssh.github.com:443/xiaoheto/seekdb-2026.git
+ssh -T -p 443 git@ssh.github.com   # 出现 "Hi <user>! You've successfully authenticated" 即正常
+```
+
+`git@github.com:` 形式的 push URL 固定走 22 端口，无法指定端口，因此上面必须写成
+`ssh://` 形式。拉取仍保持 HTTPS，不受影响。
+
 ## 比赛基线
 
 两个项目均使用 `2026-competition`，不使用 `master` 或 PowerContext 的 `2026-competition-ecosystem`。
