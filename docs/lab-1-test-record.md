@@ -35,11 +35,11 @@ Part A 只覆盖自身两个评分项，其余四项如实记为未运行。`ai_
 | 检查 | 命令 | 结果 | 备注 |
 | --- | --- | --- | --- |
 | 增量构建 | `make -C build_release seekdb -j2` | 通过 | `BUILD_TIME: Nov  1 2026 02:38:55`；含改动的编译单元 `unity_ob_sql_ob_sql_engine_expr_15` 的归档对象 md5 `f93b785205b2ea52c58e20e448444eb8`，与改动后源码独立编译的产物逐字节一致，确认二进制含修复 |
-| 二进制 REVISION 与提交一致性 | `build_release/src/observer/seekdb -V` | 失败 | 显示 `REVISION: 1-4b9d8905c...`，应为 `1-b6cc9ac51...`。`GIT_REVISION` 由 cmake 配置期 `git rev-parse HEAD` 写入 `ob_version.cpp`，配置发生在修复提交之前。仅影响版本串显示，不影响代码；重新配置后自动修正 |
+| 二进制 REVISION 与提交一致性 | `build_release/src/observer/seekdb -V` | 通过 | `REVISION: 1-b6cc9ac518dc9c6b39fd7e478736072dd6057e55`，与分支 `lab1/ai-prompt` 的 HEAD 一致。`GIT_REVISION` 由 cmake 配置期 `git rev-parse HEAD` 写入 `ob_version.cpp`，修复提交后需重新配置 cmake |
 | AI_PROMPT 目标 mysqltest | `./obd.sh mysqltest -n single --disable-reboot --test-dir ./mysql_test/test_suite/ai_function/t --result-dir ./mysql_test/test_suite/ai_function/r --test-set ai_prompt` | 通过 | `Total 1, Passed 1, Failed 0`。`obd.sh` 会切换到 `tools/deploy` 作为工作目录，路径不能重复写 `./tools/deploy/` 前缀 |
 | 完整 `ai_function` suite | `./obd.sh mysqltest -n single --disable-reboot --test-dir ./mysql_test/test_suite/ai_function/t --result-dir ./mysql_test/test_suite/ai_function/r --test-set ai_function_enhancement` | 失败 | 套件在 Part B 的跨行 `AI_EMBED` 用例处停止，Part A 的用例此前全部通过 |
-| 重复占位符缓冲区回归 | `select ai_complete('m1', ai_prompt('{0}/{0}', json_array(1,true)));` | 未运行 | 修复前报 `OB_BUF_NOT_ENOUGH`，修复后应返回 `[1, true]/[1, true]`。公共用例只构造 JSON 不做替换，覆盖不到该路径，需手工验证 |
-| NULL 参数语义回归 | `select ai_prompt('{0}', v) from t_null;`（`v` 为 NULL 值列） | 未运行 | 修复前静默返回空串，修复后应报 5083。公共用例只有 NULL 字面量（plan 期拦截），覆盖不到运行时路径，需手工验证 |
+| 重复占位符缓冲区回归 | `select ai_complete('enhance_complete', ai_prompt('{0}/{0}', json_array(1,true)));` | 通过 | 返回 `[1, true]/[1, true]`；字符串参数同样通过，`ai_prompt('{0}/{0}', 'hello world')` 返回 `hello world/hello world`。修复前两者均报 `OB_BUF_NOT_ENOUGH`。公共用例只构造 JSON 不做替换，覆盖不到该路径，故手工验证。用 Mock AI Service 的回显模式读取服务端实际收到的 prompt |
+| NULL 参数语义回归 | `select ai_prompt('{0}', v) from t_null;`（`v` 为 NULL 值列） | 通过 | 报 `ERROR 5083 (22000): Invalid data type for the operation`，与 NULL 字面量在类型推导阶段的报错一致。修复前静默返回空串。公共用例只有 NULL 字面量（plan 期拦截），覆盖不到运行时路径，故手工验证 |
 | 普通 SQL 冒烟 | 待填写 | 未运行 | 待填写 |
 | 连续重复运行 | 待填写 | 未运行 | 待填写 |
 
