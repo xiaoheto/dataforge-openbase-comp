@@ -19,12 +19,12 @@
 
 | 评分项 | 测试命令或用例 | 结果 | 证据或备注 |
 | --- | --- | --- | --- |
-| `AI_PROMPT` 类型与模板增强 | `ai_prompt` mysqltest | 通过 | 覆盖 JSON Object/Array、重复占位符、`TEXT`/`LONGTEXT`/BLOB、普通字符串与非法类型回归 |
-| `AI_EMBED` 单行语义 | `ai_function_enhancement` | 未运行 | 属 Part B |
-| `AI_COMPLETE` 请求与响应 | `ai_function_enhancement` | 通过 | `complete_ok = 1`，`complete_config_ok = 1`；覆盖普通 Prompt、`AI_PROMPT` 结果、JSON config、`NULL` config、`temperature`/`max_tokens` |
-| Ollama Provider | `ai_function_enhancement` | 未运行 | 属 Part C |
-| `AI_RERANK` 结果正确性 | `ai_function_enhancement` | 未运行 | 属 Part C |
-| `AI_EMBED` 跨行批量 | `ai_function_enhancement` | 未运行 | 属 Part B；套件在该用例处停止 |
+| `AI_PROMPT` 类型与模板增强 | `ai_prompt` mysqltest | 通过 | `Total 1, Passed 1, Failed 0`，1.27s。与官方 `ai_prompt.result` 逐条一致：JSON Object/Array 参数保留结构、重复占位符、`CHAR`/`VARCHAR`/`BINARY`/`VARBINARY`/`TINYBLOB`/`TEXT`/`LONGTEXT` 模板、非法类型与 NULL 字面量回归 |
+| `AI_COMPLETE` 请求与响应 | `ai_function_enhancement` | 通过 | 套件执行到 Part B 用例前，`complete_ok = 1`、`complete_config_ok = 1`；覆盖普通 Prompt、`AI_PROMPT` 的 JSON 结果、JSON config、`NULL` config、`temperature`/`max_tokens` |
+| `AI_EMBED` 单行语义 | `ai_function_enhancement` | 未运行 | 属 Part B。套件中的单行语句（`embed_dimension = 4`、`requested_dimension = 768`）执行通过，但那是基线自带能力，本分支不含 Part B 改动，不作为 Part B 的验证结果 |
+| `AI_EMBED` 跨行批量 | `ai_function_enhancement` | 失败 | 套件在此停止：`At line 47: query 'select id, json_length(ai_embed('enhance_embed', content)) as dimension from ai_enhance_batch order by id' failed: 1210: Incorrect arguments to ai_embed, model id or content is null`。属 Part B：基线的 `AI_EMBED` 无 `eval_batch_func_`，逐行路径把 NULL 行当错误 |
+| Ollama Provider | `ai_function_enhancement` | 未运行 | 属 Part C，套件在 Part B 用例处停止，未执行 |
+| `AI_RERANK` 结果正确性 | `ai_function_enhancement` | 未运行 | 属 Part C，套件在 Part B 用例处停止，未执行 |
 
 Part A 只覆盖自身两个评分项，其余四项如实记为未运行。`ai_function_enhancement` 套件在跨行 `AI_EMBED` 用例停止，该用例属 Part B。
 
@@ -34,10 +34,12 @@ Part A 只覆盖自身两个评分项，其余四项如实记为未运行。`ai_
 
 | 检查 | 命令 | 结果 | 备注 |
 | --- | --- | --- | --- |
-| 增量构建 | `./build.sh release --make -j2` | 通过 | 提交 `b6cc9ac51` 涉及的 `unity_ob_sql_ob_sql_engine_expr_15` 编译单元重新编译通过（`-Werror` 无警告）；提交 `4b9d8905c` 的产物与改动前二进制对应的 `.o` 逐字节一致（md5 `d13bfcd5`），确认 LF 归一化不改变机器码 |
-| 重复占位符缓冲区回归 | `select ai_complete('enhance_complete', ai_prompt('{0}/{0}'));` | 未运行 | 修复前该表达式返回 `OB_BUF_NOT_ENOUGH`，修复后返回完整拼接结果；需在部署新二进制后复测 |
-| AI 函数目标 mysqltest | `./tools/deploy/obd.sh mysqltest -n single --disable-reboot --test-dir ./mysql_test/test_suite/ai_function/t --result-dir ./mysql_test/test_suite/ai_function/r --test-set ai_prompt` | 通过 | `obd.sh` 会切换到 `tools/deploy` 作为工作目录，路径不能重复写 `./tools/deploy/` 前缀 |
-| 完整 `ai_function` suite | `./tools/deploy/obd.sh mysqltest -n single --disable-reboot --suite ai_function` | 未运行 | 待 Part B、Part C 完成后补齐 |
+| 增量构建 | `make -C build_release seekdb -j2` | 通过 | `BUILD_TIME: Nov  1 2026 02:38:55`；含改动的编译单元 `unity_ob_sql_ob_sql_engine_expr_15` 的归档对象 md5 `f93b785205b2ea52c58e20e448444eb8`，与改动后源码独立编译的产物逐字节一致，确认二进制含修复 |
+| 二进制 REVISION 与提交一致性 | `build_release/src/observer/seekdb -V` | 失败 | 显示 `REVISION: 1-4b9d8905c...`，应为 `1-b6cc9ac51...`。`GIT_REVISION` 由 cmake 配置期 `git rev-parse HEAD` 写入 `ob_version.cpp`，配置发生在修复提交之前。仅影响版本串显示，不影响代码；重新配置后自动修正 |
+| AI_PROMPT 目标 mysqltest | `./obd.sh mysqltest -n single --disable-reboot --test-dir ./mysql_test/test_suite/ai_function/t --result-dir ./mysql_test/test_suite/ai_function/r --test-set ai_prompt` | 通过 | `Total 1, Passed 1, Failed 0`。`obd.sh` 会切换到 `tools/deploy` 作为工作目录，路径不能重复写 `./tools/deploy/` 前缀 |
+| 完整 `ai_function` suite | `./obd.sh mysqltest -n single --disable-reboot --test-dir ./mysql_test/test_suite/ai_function/t --result-dir ./mysql_test/test_suite/ai_function/r --test-set ai_function_enhancement` | 失败 | 套件在 Part B 的跨行 `AI_EMBED` 用例处停止，Part A 的用例此前全部通过 |
+| 重复占位符缓冲区回归 | `select ai_complete('m1', ai_prompt('{0}/{0}', json_array(1,true)));` | 未运行 | 修复前报 `OB_BUF_NOT_ENOUGH`，修复后应返回 `[1, true]/[1, true]`。公共用例只构造 JSON 不做替换，覆盖不到该路径，需手工验证 |
+| NULL 参数语义回归 | `select ai_prompt('{0}', v) from t_null;`（`v` 为 NULL 值列） | 未运行 | 修复前静默返回空串，修复后应报 5083。公共用例只有 NULL 字面量（plan 期拦截），覆盖不到运行时路径，需手工验证 |
 | 普通 SQL 冒烟 | 待填写 | 未运行 | 待填写 |
 | 连续重复运行 | 待填写 | 未运行 | 待填写 |
 
