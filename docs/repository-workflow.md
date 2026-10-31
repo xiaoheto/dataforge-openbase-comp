@@ -91,6 +91,27 @@ git -C projects/seekdb diff --cached --ignore-all-space --stat
 
 两条结果应一致。
 
+### 清理工作区的 CRLF 污染
+
+clone 时若全局 `core.autocrlf=true`，工作区副本会是 CRLF 而仓库 blob 仍是 LF。
+本地改成 `core.autocrlf=false` 不会重写已存在的文件，这个差异平时被 git 的 stat
+缓存掩盖，直到有人编辑某个 CRLF 文件并提交，整个文件就会以 CRLF 进入 commit。
+
+先确认污染范围：
+
+```bash
+git -C projects/seekdb ls-files --eol | awk '{print $1, $2}' | sort | uniq -c
+```
+
+`i/lf w/crlf` 的条目就是污染。`i/crlf w/crlf` 是上游原生 CRLF，不要动。
+
+用工具清理，它会从索引重写工作区副本并还原 mtime，不改动仓库内容，也不会触发
+增量重编：
+
+```bash
+python3 tools/normalize-eol/normalize_eol.py projects/seekdb
+```
+
 ### 依赖分支必须 rebase 到 LF 干净的基线
 
 Part A 的基线提交曾以 CRLF 落盘，`lab1/integration` 与依赖分支都必须 rebase 到
