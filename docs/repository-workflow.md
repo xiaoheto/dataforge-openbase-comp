@@ -91,6 +91,26 @@ git -C projects/seekdb diff --cached --ignore-all-space --stat
 
 两条结果应一致。
 
+### 依赖分支必须 rebase 到 LF 干净的基线
+
+Part A 的基线提交曾以 CRLF 落盘，`lab1/integration` 与依赖分支都必须 rebase 到
+LF 干净的 `lab1/ai-prompt`（`4b9d8905c`）之上，否则 PR diff 会再次被换行符噪声淹没：
+
+```bash
+git -C projects/seekdb rebase --onto 4b9d8905c <旧基线提交> <功能分支>
+```
+
+若 `ob_ai_func_utils.cpp` 出现整文件冲突，说明基线换行符不同：取对方（被 rebase
+的提交）版本，再用 `sed -i 's/\r$//'` 统一转 LF。语义内容不变，冲突标记应消失。
+
+rebase 完成后必须核对语义一致性，确认改动没有丢失：
+
+```bash
+git -C projects/seekdb diff --ignore-cr-at-eol <原分支> <rebase后分支> --stat
+```
+
+输出为空即表示内容完全一致，仅换行符不同。
+
 ## 更新父仓库指针
 
 功能代码合入项目 fork 后，在父仓库执行：
