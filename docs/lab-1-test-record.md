@@ -1,6 +1,8 @@
 # Lab 1 测试记录
 
 > 在第 13 天干净环境复现时填写。失败、跳过和未运行必须如实记录，不得留空或写成通过。
+>
+> 每位成员单独一节，互不覆盖。Part A 的记录到「Part A 测试记录」为止，Part C 的记录在文末。
 
 ## 版本与环境
 
@@ -26,7 +28,7 @@
 | Ollama Provider | `ai_function_enhancement` | 未运行 | 属 Part C，套件在 Part B 用例处停止，未执行 |
 | `AI_RERANK` 结果正确性 | `ai_function_enhancement` | 未运行 | 属 Part C，套件在 Part B 用例处停止，未执行 |
 
-Part A 只覆盖自身两个评分项，其余四项如实记为未运行。`ai_function_enhancement` 套件在跨行 `AI_EMBED` 用例停止，该用例属 Part B。
+Part A 只覆盖自身两个评分项，其余四项如实记为未运行。`ai_function_enhancement` 套件在跨行 `AI_EMBED` 用例停止，该用例属 Part B。Ollama Provider 与 `AI_RERANK` 两项的结果见文末「Part C 测试记录」。
 
 结果只使用 `通过`、`失败`、`跳过` 或 `未运行`。
 
@@ -54,4 +56,46 @@ Part A 只覆盖自身两个评分项，其余四项如实记为未运行。`ai_
 | --- | --- | --- |
 | A | `AI_PROMPT`、`AI_COMPLETE` | 待填写 |
 | B | `AI_EMBED` 单行与跨行批量 | 待填写 |
-| C | Ollama Provider、`AI_RERANK` | 待填写 |
+| C | Ollama Provider、`AI_RERANK` | 分支 `lab1/ollama`（`6147e3bd8`）、`lab1/ai-rerank`（`6478e02b4`），基线 `b6cc9ac51` |
+
+## Part C 测试记录（成员 C：Ollama Provider、`AI_RERANK`）
+
+### 版本与环境
+
+| 项目 | 记录 |
+| --- | --- |
+| seekdb 提交 | `lab1/ollama` = `6147e3bd8`，`lab1/ai-rerank` = `6478e02b4`，基线 `b6cc9ac51`（`lab1/integration`） |
+| 父仓库提交 | 待填写（Mock AI Service 的 embedding 默认维度改为 768、换行符工具修正） |
+| 操作系统 | Ubuntu 24.04.4 LTS x86_64，VMware 虚拟机 `localVM`（宿主 Windows） |
+| CPU / 内存 | Intel Core Ultra 7 155H，2 核 / 3.5 GiB（交换分区 3.5 GiB），编译并行度 `-j2` |
+| 构建命令 | 首次 `./build.sh release --init --make -j2`，之后 `./build.sh release --make -j2` |
+| OBD / seekdb 版本 | OBD 4.1.0 / seekdb 1.4.0.0，`REVISION: 1-b6cc9ac518dc9c6b39fd7e478736072dd6057e55`，`BUILD_TIME: Nov 8 2026 20:33:04` |
+| mysql 端口 | 10000，`obd.sh prepare -b ./build_release -p /tmp/obtest` + `obd.sh deploy -c ./tools/deploy/single.yaml`（`memory_budget: "2G"`、`cpu_count: "2"`，虚拟机内存只有 3.5 GiB） |
+| Mock AI Service | `python3 tools/mock-ai-service/mock_ai_service.py 8000`，embedding 默认维度 768 |
+| 测试命令 | `./tools/deploy/obd.sh mysqltest -n single --disable-reboot --test-dir ./mysql_test/test_suite/ai_function/t --result-dir ./mysql_test/test_suite/ai_function/r --test-set <用例名>`（`obd.sh` 会切到 `tools/deploy`，路径不能重复写 `./tools/deploy/` 前缀） |
+
+### 评分项结果
+
+| 评分项 | 测试命令或用例 | 结果 | 证据或备注 |
+| --- | --- | --- | --- |
+| Ollama Provider | `ai_function_enhancement`、`ai_function_ollama` | 通过 | 官方套件 `Total 1, Passed 1, Failed 0`；自建用例 `ai_function_ollama`（新增 `t/ai_function_ollama.test` 与 `r/mysql/ai_function_ollama.result`）同样 `Passed 1, Failed 0`。覆盖：provider 原样入库（`ollama` 入库为 `ollama`，`ALTER` 写 `"Ollama"` 后为 `Ollama`，比较仍不区分大小写）、ollama 允许空 access_key（openai 传空 access_key 报 11114 `The param 'access_key' is empty or null`，未知 provider 报 11116 `The value of param 'provider' is invalid`）、补全走 `/api/generate` 读 `$.response`、向量化走 `/api/embed` 读 `$.embeddings` 且维度为 768 |
+| `AI_RERANK` 结果正确性 | `ai_function_enhancement`、`ai_function_rerank` | 通过 | 官方套件 `Total 1, Passed 1, Failed 0`；自建用例 `ai_function_rerank`（新增 `t/ai_function_rerank.test` 与 `r/mysql/ai_function_rerank.result`）同样 `Passed 1, Failed 0`。覆盖：字符串数组返回条数为 4 且按分数降序（`apple` 首条、`banana` 次条、`vegetable` 末条）、`doc_key` 路径首条 `id = a`、条数 2、第 4 个参数为 NULL 时按纯字符串文档处理、数组为空 / 元素非字符串 / 元素非对象 / 缺 doc key / doc key 为空 / 模型不存在均报 1210 |
+
+### 回归结果
+
+| 检查 | 命令 | 结果 | 备注 |
+| --- | --- | --- | --- |
+| 官方 `ai_function` 套件 | `--test-set ai_function_enhancement` | 通过 | `Total 1, Passed 1, Failed 0`，整套跑到最后一行。该套件包含 Part B 的跨行 `AI_EMBED` 用例，二进制里含 Part B 那一行 NULL 修复（本地未提交），去掉后套件会在第 47 行停止 |
+| `AI_PROMPT` 回归 | `--test-set ai_prompt` | 通过 | `Total 1, Passed 1, Failed 0` |
+| 模型 DDL 回归 | `--test-set ai_model_ddl` | 通过 | `Total 1, Passed 1, Failed 0` |
+| 模型名大小写回归 | `--test-set ai_model_lower_case_name_mysql0`、`--test-set ai_model_lower_case_name_mysql1` | 通过 | 各 `Total 1, Passed 1, Failed 0` |
+| 端点 DDL 回归 | `--test-set ai_model_endpoint_ddl` | 失败 | 第 38 行 `CREATE_AI_MODEL_ENDPOINT` 报 `11115: The param 'max_concurrency' is invalid`。官方 `ai_model_endpoint_ddl.result` 期望 `max_concurrency` 可用，但基线 `b6cc9ac51` 的 `ObAiModelEndpointInfo` 根本没有这个字段、参数白名单也没有它（`git show b6cc9ac51:src/share/ai_service/ob_ai_service_struct.cpp` 中无 `concurrency`），我的改动也没有动参数白名单，故基线同样失败，属基线缺功能而非本次回归 |
+| 两个分支合并 | `git merge lab1/ai-rerank`（在 `lab1/ollama` 上） | 通过 | 自动合并无冲突，合并结果与本地实测工作区逐字节一致（仅 `ob_expr_ai_embed.cpp` 与 `tools/deploy/activate_obd.sh` 两处本地未提交改动不同） |
+
+### 已知限制
+
+- Mock AI Service 只验证请求构造、响应解析和错误处理路径，不能替代比赛隐藏测试使用的官方服务；rerank 的分数按与查询的公共词个数计算，只用于验证排序逻辑。
+- 二进制里含 Part B 的 `AI_EMBED` NULL 行修复（本地未提交），因此官方套件能跑完全程；只合入本分支时套件会在第 47 行停止。
+- 虚拟机上的构建与部署全部无 root 完成，依赖装在 `~/opt`：`m4`（bison 生成 parser 需要 `M4` 环境变量）、`libaio.so.1t64`（`src/oblib/CMakeLists.txt` 找的是 `libaio.so.1t64`，系统里只有 `libaio.so.1`）、`libtool`（`tools/deploy/copy.sh` 用 `libtool --mode=install cp` 拷二进制）。
+- `tools/deploy/activate_obd.sh` 的 `OBD_HOME` 修复（`$DIR` 未定义，应为 `$DEPLOY_PATH`）与 obd 插件补丁（seekdb 1.4 不再提供 `oceanbase.__all_server`）都是本地部署改动，保持未提交状态。
+

@@ -20,7 +20,7 @@ python3 tools/mock-ai-service/mock_ai_service.py 8000
 | `/api/embed` | Ollama | `$.embeddings` |
 | `/v1/rerank` | SiliconFlow | `$.results[*]` 的 `index` 与 `relevance_score` |
 
-字段命名与 `src/sql/engine/expr/ob_expr_ai/ob_ai_func_utils.cpp` 中各 Provider 的 `parse_output()` 保持一致。Embedding 维度取请求中的 `dimensions`，缺省为 4。
+字段命名与 `src/sql/engine/expr/ob_expr_ai/ob_ai_func_utils.cpp` 中各 Provider 的 `parse_output()` 保持一致。Embedding 维度取请求中的 `dimensions`，缺省为 768，与 `ai_function_enhancement` 的预期结果一致。
 
 ## 回显模式
 
@@ -34,4 +34,4 @@ MOCK_AI_ECHO_PROMPT=1 python3 tools/mock-ai-service/mock_ai_service.py 8000
 
 ## 边界
 
-该服务不调用真实模型，所有响应都是确定性的、与输入内容无关的占位结果。它只能验证请求构造、响应解析和错误处理路径，不能替代比赛隐藏测试使用的官方服务。正式评分以官方服务为准。
+该服务不调用真实模型。completion 与 embedding 的响应是与输入内容无关的占位结果，rerank 的分数是查询与文档共有的词数（`apple` 对 `apple` 为 1.0，对 `banana` 为 0.0），因此可以用它断言重排结果的顺序。它只能验证请求构造、响应解析和错误处理路径，不能替代比赛隐藏测试使用的官方服务。正式评分以官方服务为准。

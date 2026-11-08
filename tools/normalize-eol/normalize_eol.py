@@ -93,16 +93,48 @@ def main():
         subprocess.run(["git", "-C", repo, "reset", "-q", "--"] + local_edits,
                        capture_output=True)
 
-    remaining = 0
+    # The checkout above reuses the conversion that git cached in the index
+    # when the files were written with core.autocrlf=true. Those files keep
+    # their carriage returns, so they are rewritten byte by byte here.
+    remaining = []
+    for path in targets:
+        full = os.path.join(repo, path)
+        try:
+            with open(full, "rb") as handle:
+                data = handle.read()
+        except OSError:
+            continue
+        if b"\r" not in data:
+            continue
+        with open(full, "wb") as handle:
+            handle.write(data.replace(b"\r\n", b"\n"))
+        remaining.append(path)
+
+    if remaining:
+        print("rewritten byte by byte: %d" % len(remaining))
+        # The index has to learn that these files hold LF now.
+        subprocess.run(["git", "-C", repo, "add", "--renormalize", "--pathspec-from-file=-",
+                        "--pathspec-file-nul", "--"],
+                       input=("\0".join(remaining)).encode("utf-8", "surrogateescape") + b"\0",
+                       capture_output=True)
+        for path in remaining:
+            try:
+                atime, mtime = stamps.get(path, (None, None))
+                if atime is not None:
+                    os.utime(os.path.join(repo, path), ns=(atime, mtime))
+            except OSError:
+                pass
+
+    still = 0
     for path in targets:
         try:
             with open(os.path.join(repo, path), "rb") as handle:
                 if b"\r" in handle.read():
-                    remaining += 1
+                    still += 1
         except OSError:
             pass
-    print("normalized: %d, still holding CR: %d" % (len(targets), remaining))
-    return 0 if remaining == 0 else 1
+    print("normalized: %d, still holding CR: %d" % (len(targets), still))
+    return 0 if still == 0 else 1
 
 
 if __name__ == "__main__":

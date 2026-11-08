@@ -20,7 +20,9 @@ import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-DEFAULT_DIMENSION = 4
+# The dimension the official test expects for an embedding without an
+# explicit dimension.
+DEFAULT_DIMENSION = 768
 COMPLETION_TEXT = "mock completion response"
 
 # When enabled the completion responses echo the prompt that the server
