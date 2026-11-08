@@ -66,7 +66,7 @@ git -C projects/powercontext merge --ff-only upstream/2026-competition
 
 - `2026-competition`：只同步官方基线，不直接开发。
 - `lab1/integration`：seekdb Lab 1 集成分支，只接受经过评审的 PR。
-- 功能分支：`lab1/ai-prompt`、`lab1/ai-complete`、`lab1/ai-embed-single`、`lab1/ai-embed-batch`、`lab1/ollama`、`lab1/ai-rerank`。
+- 功能分支：`lab1/ai-prompt`、`lab1/ai-complete`、`lab1/ai-embed-single`、`lab1/ai-embed-batch`、`lab1/ollama`、`lab1/ai-rerank`、`lab1/ai-endpoint-max-concurrency`。
 - 每个 PR 只对应一个评分项，附构建命令、目标测试和实际结果，并由至少一名非作者评审。
 - Part A 一次提交覆盖 `AI_PROMPT` 与 `AI_COMPLETE` 两个评分项，两者都依赖 `ob_ai_func_utils.cpp` 的模板替换逻辑，拆分会引入额外冲突。
 - 公共 AI 工具代码使用小 PR 先行合并；依赖分支每天 rebase，避免长期并行修改同一区域。

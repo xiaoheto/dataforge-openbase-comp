@@ -56,7 +56,7 @@ Part A 只覆盖自身两个评分项，其余四项如实记为未运行。`ai_
 | --- | --- | --- |
 | A | `AI_PROMPT`、`AI_COMPLETE` | 待填写 |
 | B | `AI_EMBED` 单行与跨行批量 | 待填写 |
-| C | Ollama Provider、`AI_RERANK` | 分支 `lab1/ollama`（`6147e3bd8`）、`lab1/ai-rerank`（`6478e02b4`），基线 `b6cc9ac51` |
+| C | Ollama Provider、`AI_RERANK` | 分支 `lab1/ollama`（`6147e3bd8`）、`lab1/ai-rerank`（`6478e02b4`），基线 `b6cc9ac51`；附加修复 `lab1/ai-endpoint-max-concurrency`（`714e3c88a`） |
 
 ## Part C 测试记录（成员 C：Ollama Provider、`AI_RERANK`）
 
@@ -64,13 +64,13 @@ Part A 只覆盖自身两个评分项，其余四项如实记为未运行。`ai_
 
 | 项目 | 记录 |
 | --- | --- |
-| seekdb 提交 | `lab1/ollama` = `6147e3bd8`，`lab1/ai-rerank` = `6478e02b4`，基线 `b6cc9ac51`（`lab1/integration`） |
+| seekdb 提交 | `lab1/ollama` = `6147e3bd8`，`lab1/ai-rerank` = `6478e02b4`，`lab1/ai-endpoint-max-concurrency` = `714e3c88a`，基线 `b6cc9ac51`（`lab1/integration`） |
 | 父仓库提交 | 待填写（Mock AI Service 的 embedding 默认维度改为 768、换行符工具修正） |
 | 操作系统 | Ubuntu 24.04.4 LTS x86_64，VMware 虚拟机 `localVM`（宿主 Windows） |
 | CPU / 内存 | Intel Core Ultra 7 155H，2 核 / 3.5 GiB（交换分区 3.5 GiB），编译并行度 `-j2` |
 | 构建命令 | 首次 `./build.sh release --init --make -j2`，之后 `./build.sh release --make -j2` |
-| OBD / seekdb 版本 | OBD 4.1.0 / seekdb 1.4.0.0，`REVISION: 1-b6cc9ac518dc9c6b39fd7e478736072dd6057e55`，`BUILD_TIME: Nov 8 2026 20:33:04` |
-| mysql 端口 | 10000，`obd.sh prepare -b ./build_release -p /tmp/obtest` + `obd.sh deploy -c ./tools/deploy/single.yaml`（`memory_budget: "2G"`、`cpu_count: "2"`，虚拟机内存只有 3.5 GiB） |
+| OBD / seekdb 版本 | OBD 4.1.0 / seekdb 1.4.0.0，`REVISION: 1-2ac0b16390e59f41b58fe5974abcd4e10657f6b7`（三个功能分支的本地合并），`BUILD_TIME: Nov 8 2026 22:05` |
+| mysql 端口 | 10000，`obd.sh prepare -b ./build_release -p /tmp/obtest` + `obd.sh deploy -c ./tools/deploy/single.yaml`（`memory_budget: "2G"`、`cpu_count: "2"`，虚拟机内存只有 3.5 GiB）。内表 `__all_ai_model_endpoint` 加列后必须重建集群 |
 | Mock AI Service | `python3 tools/mock-ai-service/mock_ai_service.py 8000`，embedding 默认维度 768 |
 | 测试命令 | `./tools/deploy/obd.sh mysqltest -n single --disable-reboot --test-dir ./mysql_test/test_suite/ai_function/t --result-dir ./mysql_test/test_suite/ai_function/r --test-set <用例名>`（`obd.sh` 会切到 `tools/deploy`，路径不能重复写 `./tools/deploy/` 前缀） |
 
@@ -81,6 +81,17 @@ Part A 只覆盖自身两个评分项，其余四项如实记为未运行。`ai_
 | Ollama Provider | `ai_function_enhancement`、`ai_function_ollama` | 通过 | 官方套件 `Total 1, Passed 1, Failed 0`；自建用例 `ai_function_ollama`（新增 `t/ai_function_ollama.test` 与 `r/mysql/ai_function_ollama.result`）同样 `Passed 1, Failed 0`。覆盖：provider 原样入库（`ollama` 入库为 `ollama`，`ALTER` 写 `"Ollama"` 后为 `Ollama`，比较仍不区分大小写）、ollama 允许空 access_key（openai 传空 access_key 报 11114 `The param 'access_key' is empty or null`，未知 provider 报 11116 `The value of param 'provider' is invalid`）、补全走 `/api/generate` 读 `$.response`、向量化走 `/api/embed` 读 `$.embeddings` 且维度为 768 |
 | `AI_RERANK` 结果正确性 | `ai_function_enhancement`、`ai_function_rerank` | 通过 | 官方套件 `Total 1, Passed 1, Failed 0`；自建用例 `ai_function_rerank`（新增 `t/ai_function_rerank.test` 与 `r/mysql/ai_function_rerank.result`）同样 `Passed 1, Failed 0`。覆盖：字符串数组返回条数为 4 且按分数降序（`apple` 首条、`banana` 次条、`vegetable` 末条）、`doc_key` 路径首条 `id = a`、条数 2、第 4 个参数为 NULL 时按纯字符串文档处理、数组为空 / 元素非字符串 / 元素非对象 / 缺 doc key / doc key 为空 / 模型不存在均报 1210 |
 
+### 附加修复：端点的 `max_concurrency` 参数
+
+官方 `ai_model_endpoint_ddl` 用例期望端点支持 `max_concurrency`，但上游所有分支（含 `2026-competition`）都没有这个字段，用例在基线就失败。修复放在独立分支 `lab1/ai-endpoint-max-concurrency`（`714e3c88a`），不在评分项分支里。
+
+| 项目 | 内容 |
+| --- | --- |
+| 取值范围 | 必须是 JSON 数字且在 1 ~ 1024 之间，否则报 `11116 The value of param 'max_concurrency' is invalid`（官方用例用 `--error 11116` 断言） |
+| 存储 | 内表 `__all_ai_model_endpoint` 增加 `max_concurrency` 列，视图 `DBA_OB_AI_MODEL_ENDPOINTS` 增加 `MAX_CONCURRENCY` 列，未设置时为 0（不限制并发） |
+| 影响 | 内表结构变化，**已存在的集群必须重建**（`obd.sh destroy` + `prepare` + `deploy`），否则旧表没有该列 |
+| 验证 | `--test-set ai_model_endpoint_ddl` 从失败变为 `Total 1, Passed 1, Failed 0` |
+
 ### 回归结果
 
 | 检查 | 命令 | 结果 | 备注 |
@@ -89,8 +100,8 @@ Part A 只覆盖自身两个评分项，其余四项如实记为未运行。`ai_
 | `AI_PROMPT` 回归 | `--test-set ai_prompt` | 通过 | `Total 1, Passed 1, Failed 0` |
 | 模型 DDL 回归 | `--test-set ai_model_ddl` | 通过 | `Total 1, Passed 1, Failed 0` |
 | 模型名大小写回归 | `--test-set ai_model_lower_case_name_mysql0`、`--test-set ai_model_lower_case_name_mysql1` | 通过 | 各 `Total 1, Passed 1, Failed 0` |
-| 端点 DDL 回归 | `--test-set ai_model_endpoint_ddl` | 失败 | 第 38 行 `CREATE_AI_MODEL_ENDPOINT` 报 `11115: The param 'max_concurrency' is invalid`。官方 `ai_model_endpoint_ddl.result` 期望 `max_concurrency` 可用，但基线 `b6cc9ac51` 的 `ObAiModelEndpointInfo` 根本没有这个字段、参数白名单也没有它（`git show b6cc9ac51:src/share/ai_service/ob_ai_service_struct.cpp` 中无 `concurrency`），我的改动也没有动参数白名单，故基线同样失败，属基线缺功能而非本次回归 |
-| 两个分支合并 | `git merge lab1/ai-rerank`（在 `lab1/ollama` 上） | 通过 | 自动合并无冲突，合并结果与本地实测工作区逐字节一致（仅 `ob_expr_ai_embed.cpp` 与 `tools/deploy/activate_obd.sh` 两处本地未提交改动不同） |
+| 端点 DDL 回归 | `--test-set ai_model_endpoint_ddl` | 通过 | 加了 `max_concurrency` 的分支之后 `Total 1, Passed 1, Failed 0`。修复前失败于第 38 行 `CREATE_AI_MODEL_ENDPOINT`，报 `11115: The param 'max_concurrency' is invalid`：基线 `b6cc9ac51` 的 `ObAiModelEndpointInfo` 没有这个字段、参数白名单也没有它（`git show b6cc9ac51:src/share/ai_service/ob_ai_service_struct.cpp` 中无 `concurrency`），上游所有分支同样如此 |
+| 三个分支合并 | `git merge lab1/ai-rerank`（在 `lab1/ollama` 上）、`lab1/ai-endpoint-max-concurrency`（基于 `lab1/ollama`） | 通过 | 自动合并无冲突，合并结果与本地实测工作区逐字节一致（仅 `ob_expr_ai_embed.cpp` 与 `tools/deploy/activate_obd.sh` 两处本地未提交改动不同） |
 
 ### 已知限制
 
