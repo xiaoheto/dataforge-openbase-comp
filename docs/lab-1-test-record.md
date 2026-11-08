@@ -87,10 +87,23 @@ Part A 只覆盖自身两个评分项，其余四项如实记为未运行。`ai_
 
 | 项目 | 内容 |
 | --- | --- |
-| 取值范围 | 必须是 JSON 数字且在 1 ~ 1024 之间，否则报 `11116 The value of param 'max_concurrency' is invalid`（官方用例用 `--error 11116` 断言） |
+| 取值范围 | 必须是 JSON 数字且在 1 ~ 1024 之间，否则报 `11116 The value of param 'max_concurrency' is invalid`（官方用例用 `--error 11116` 断言）。小数 `3.5`、JSON `null`、负数、超大整数同样报 11116 |
 | 存储 | 内表 `__all_ai_model_endpoint` 增加 `max_concurrency` 列，视图 `DBA_OB_AI_MODEL_ENDPOINTS` 增加 `MAX_CONCURRENCY` 列，未设置时为 0（不限制并发） |
 | 影响 | 内表结构变化，**已存在的集群必须重建**（`obd.sh destroy` + `prepare` + `deploy`），否则旧表没有该列 |
 | 验证 | `--test-set ai_model_endpoint_ddl` 从失败变为 `Total 1, Passed 1, Failed 0` |
+
+审核记录（2026-11-08）：
+
+| 检查 | 方法 | 结果 |
+| --- | --- | --- |
+| 与官方期望逐字节一致 | 用 `--record` 录一份结果，与官方 `r/mysql/ai_model_endpoint_ddl.result` 做 `diff` | 两份文件完全相同（10682 字节） |
+| 边界取值 | 手工 SQL：1 和 1024 接受；0、1025、`3.5`、`null`、负数、10^20、`2147483647` 均报 11116 | 与官方用例的断言一致 |
+| 失败的 ALTER 不污染数据 | 连续 5 次非法 ALTER 后再查视图与内表 | 值仍是上一次合法的 512，事务回滚正确 |
+| ALTER 不带该参数时保留原值 | 先 `max_concurrency:64`，再只改 `provider` | 仍为 64；带上该参数则被替换为 7 |
+| 落盘与持久化 | 查内表 `__all_ai_model_endpoint`；再 `obd.sh restart -n single` 重启集群后复查 | 重启前后都是 512，值持久 |
+| 运行时可用 | 带 `max_concurrency:64` 的端点调用 `ai_complete()` | 返回正常，读取端点的路径不受新列影响 |
+| 写入路径唯一 | 全仓检索 `OB_ALL_AI_MODEL_ENDPOINT_TNAME` | 只有 `ob_ai_service_proxy.cpp` 与 `ob_ai_service_executor.cpp` 写这张表，新增列的三个位置都已覆盖 |
+| 限流本身 | 代码走查 | **参数只做校验、存储与展示，没有真正限制并发请求数**；官方用例只覆盖 DDL 行为，上游也没有参考实现，限流逻辑不在本次改动范围内 |
 
 ### 回归结果
 
