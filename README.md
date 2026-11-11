@@ -56,3 +56,5 @@ git -C projects/powercontext switch --track origin/2026-competition
 | Part C：Ollama Provider、`AI_RERANK` | `lab1/ollama`、`lab1/ai-rerank` | — | 未开始 |
 
 `2026-competition` 分支只保留官方基线，不直接开发。
+
+Lab 2「文件即数据库」的分工、契约和验收门槛见 [两周执行计划](docs/lab-2-execution-plan.md)。
