@@ -11,17 +11,6 @@
 - 八个评分项的 PR 和交叉评审记录；
 - `docs/lab-2-test-record.md`，记录环境、提交、命令、结果和已知限制。
 
-## 前置确认
-
-以下四项在开工前必须落实，否则计划中的验收门槛无法判定。
-
-| 事项 | 现状 | 处理 |
-| --- | --- | --- |
-| 题目总分 | 官方摘录前文标注 50 分，原文写「评分总分沿用原设计的 30 分」，两处冲突 | **待确认**：以教师或最新官方规则为准，按 50 分排期、按 30 分时优先保①⑤⑥ |
-| 官方 C++ unit test | `unittest/sql/parser/test_file_sql_parser.cpp`、`unittest/sql/engine/basic/test_file_scan_utils.cpp` 在 `2026-competition` 与上游 `master` 中**均不存在** | 按 Lab 1 的规则补充等价 mysqltest，不创建虚假的测试目标；隐藏测试仍可能覆盖这两份 unit test 的场景 |
-| Lab 1 收尾 | Part B 两个分支已推送但未合入 `lab1/integration`；Part C 未开工 | Lab 2 开工前先确认 Lab 1 的交付状态，两题共用同一批机器与构建环境 |
-| `COPY ... TO path` | 不单列分值，但公共 mysqltest 已覆盖导出与读回 | 归入①的执行层子项；不实现则 `file_sql_basic` 整套失败 |
-
 ## 契约
 
 基线已发布 `tools/deploy/mysql_test/test_suite/file_sql/` 下的测试数据、mysqltest 与期望输出，
