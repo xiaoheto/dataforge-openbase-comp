@@ -24,6 +24,7 @@
 | 分支 | 提交 | 内容 | 状态 |
 | --- | --- | --- | --- |
 | `lab2/jsonl-parquet` | `2c9502421` | ③ JSONL 读取、④ Parquet 读取 | 已推送 |
+| `lab2/jsonl-parquet` | `309ec9b94` | ④ Parquet 补齐 DATA_PAGE_V1 与字典编码 | 已推送 |
 
 设计说明：`projects/seekdb/docs/file-sql-member-c.md`。
 
@@ -39,9 +40,10 @@ protocol、Snappy 解压、RLE/bit-packing hybrid 与 PLAIN 编码，未引入�
 | 检查 | 命令 | 结果 | 备注 |
 | --- | --- | --- | --- |
 | 主构建 | `./build.sh release --make -j2` | 通过 | 0 error，产出 `build_release/src/observer/seekdb`，`BUILD_BRANCH: lab2/jsonl-parquet` |
-| 单元测试 | `ctest --test-dir build_file_sql_tests --output-on-failure` | 通过 | 3/3：`file_sql_types`、`file_sql_csv`（B 的）、`file_sql_jsonl_parquet` |
+| 单元测试 | `ctest --test-dir build_file_sql_tests --output-on-failure` | 通过 | 4/4：`file_sql_types`、`file_sql_csv`（B 的）、`file_sql_parquet`、`file_sql_jsonl_parquet` |
 | JSONL 读官方样例 | `ctest -R file_sql_jsonl_parquet` | 通过 | 字段并集 6 列、`score` DOUBLE、`day` DATE、缺失字段为 NULL，与官方 `file_sql_basic.result` 一致 |
 | Parquet 读官方样例 | 同上 | 通过 | `row_count=7 min=0 max=6 sum=21`，与官方 `file_sql_basic.result` 一致 |
+| Parquet 页版本与编码 | `ctest -R file_sql_parquet` | 通过 | 20 个样本覆盖 DATA_PAGE_V1/V2、PLAIN/RLE/RLE_DICTIONARY、SNAPPY/UNCOMPRESSED、必填与可空列、多 Row Group、五种物理类型、多列与列裁剪 |
 | 重扫 | 单元测试覆盖 | 通过 | `rescan` 后再次 `next_batch` 返回同样的行数 |
 | 非法输入 | 单元测试覆盖 | 通过 | `sample_size != -1` 被拒绝 |
 
@@ -49,16 +51,18 @@ protocol、Snappy 解压、RLE/bit-packing hybrid 与 PLAIN 编码，未引入�
 
 | 检查 | 原因 |
 | --- | --- |
-| `file_sql_basic.test` 端到端 | 基线没有实现，A 的表函数注册与 `enable_file_sql` 尚未发布 |
+| `file_sql_basic.test` 端到端 | 基线没有实现，A 的表函数注册与 `enable_file_sql` 尚未发布；已部署集群验证到该用例报 `Unknown system variable 'enable_file_sql'`，说明数据部署与用例加载正常 |
 | `file_sql_jsonl_parquet.test` 端到端 | 同上；该用例已提交，待公共框架就绪后运行 |
 | ⑦ 双文件 JOIN | 需要 A 的原生扫描接口；本提交提供三个格式统一的扫描器接口与 JOIN 用例 |
-| 隐藏测试覆盖的场景 | 官方 unit test 未随分支发布，已按其名称推断补充等价 mysqltest |
+| 隐藏测试覆盖的场景 | 官方 unit test 未随分支发布，已按其名称推断补充等价 mysqltest 与 20 个 Parquet 样本 |
 
 ### 已知限制
 
-- Parquet 只支持 DATA_PAGE_V2 + PLAIN；DATA_PAGE_V1、RLE_DICTIONARY 未实现。
+- Parquet 支持 DATA_PAGE_V1/V2 与 PLAIN/RLE/RLE_DICTIONARY；DELTA_BINARY_PACKED
+  与 BYTE_STREAM_SPLIT 未实现。
 - Parquet 只支持 SNAPPY 与 UNCOMPRESSED；ZSTD 与 GZIP 未实现。
 - Parquet 的 INT96 时间戳类型不支持。
+- Parquet 的嵌套列只读第一层的 definition levels，每一行对应一个叶子值。
 - JSONL 只支持扁平对象，嵌套对象与数组被拒绝。
 - 两个扫描器都不打开路径、不执行查询：路径授权、`enable_file_sql`、
   `secure_file_priv`、符号链接校验由 A 的公共框架负责；过滤、聚合、排序与 JOIN
