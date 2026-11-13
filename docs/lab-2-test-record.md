@@ -26,6 +26,8 @@
 | `lab2/jsonl-parquet` | `d960b0fa9` | ③ JSONL 读取、④ Parquet 读取 | 已推送 |
 | `lab2/jsonl-parquet` | `309ec9b94` | ④ Parquet 补齐 DATA_PAGE_V1 与字典编码 | 已推送 |
 | `lab2/jsonl-parquet` | `790f728bd` | 修复损坏的 Parquet 样本，并加入样本完整性检查 | 已推送 |
+| `lab2/jsonl-parquet` | `10e288402` | 设计文档补上样本完整性检查的说明 | 已推送 |
+| `lab2/jsonl-parquet` | `411f2bc56` | 拒绝不存在的 projection 列，修复初始化失败后的段错误，补齐契约用例 | 已推送 |
 
 设计说明：`projects/seekdb/docs/file-sql-member-c.md`。
 
@@ -48,6 +50,13 @@ protocol、Snappy 解压、RLE/bit-packing hybrid 与 PLAIN 编码，未引入�
 | 样本完整性 | `python3 .../file_sql/data/parquet/check_fixtures.py .../parquet` | 通过 | 20 个样本全部通过页覆盖检查 |
 | 重扫 | 单元测试覆盖 | 通过 | `rescan` 后再次 `next_batch` 返回同样的行数 |
 | 非法输入 | 单元测试覆盖 | 通过 | `sample_size != -1` 被拒绝 |
+| JSONL 类型冲突 | 单元测试覆盖 | 通过 | 同一列里整数与浮点混合时统一为 DOUBLE，两个值都是 DOUBLE |
+| JSONL 缺失字段 | 单元测试覆盖 | 通过 | 缺失字段补 NULL，另一行同位置有值 |
+| JSONL 嵌套拒绝 | 单元测试覆盖 | 通过 | 嵌套对象与数组都被拒绝 |
+| Parquet 列裁剪 | 单元测试覆盖 | 通过 | projection 里的列照常读取，未列出的列在行里是 NULL，schema 仍是文件的全部列 |
+| 非法 projection | 单元测试覆盖 | 通过 | projection 里有文件没有的列时 `init` 报错，不再产出全 NULL 的行 |
+| 初始化失败后调用 | 单元测试覆盖 | 通过 | `init` 失败后再 `next_batch` 返回错误且不产出行，不再段错误 |
+| 新用例的有效性 | 临时破坏校验逻辑后重跑 | 通过 | 两个测试文件各报 3 条 FAIL，确认用例不是空跑 |
 
 ### Parquet 样本损坏的排查记录
 
@@ -69,6 +78,27 @@ protocol、Snappy 解压、RLE/bit-packing hybrid 与 PLAIN 编码，未引入�
   元数据，遍历页头并验证页能无缝覆盖文件。丢字节的文件会报
   `the page at 5467 claims 15916 bytes and reaches past the footer`。
   该检查已能区分修复前后两份样本。
+
+### 契约复核发现的两处缺陷
+
+对着计划的测试矩阵逐条复核 ③ 和 ④ 时发现两个问题，都在 `411f2bc56` 修复：
+
+1. **projection 里出现文件没有的列时，静默产出全 NULL 的行。**
+   旧实现里 `projection` 只用来决定"哪些列值得读"，没有任何校验。列名写错时
+   一列都匹配不上，于是不读任何列，行里全是 NULL——这是错误结果而不是诊断，
+   计划明确禁止异常输入导致错误结果。现在 `init` 直接报错。
+
+2. **`init` 失败后再调用 `next_batch` 会段错误。**
+   读取器在 schema 建好之前就把"可用"标记置上了，schema 构建失败时读取器停在
+   一个半成品状态，`next_batch` 接着读一个不存在的 Row Group，崩溃。这条路径
+   原本被"projection 一定成功"的旧假设掩盖着，修好第 1 条之后立刻暴露。
+   计划要求异常数据不得导致崩溃，现在标记只在完全可用时置上，且 `next_batch`
+   会拒绝没有列的读取器。
+
+同时把计划里列出但单测没覆盖的契约补进仓库的测试：JSONL 的整数与浮点混合成
+DOUBLE、缺失字段补 NULL、拒绝嵌套对象与数组，以及 Parquet 的非法 projection 与
+初始化失败后调用。新用例的有效性做过验证：临时去掉校验逻辑后，两个测试文件各报
+3 条 FAIL，确认用例不是空跑。
 
 ### 未运行的检查
 
