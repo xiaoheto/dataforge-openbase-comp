@@ -28,6 +28,7 @@
 | `lab2/jsonl-parquet` | `790f728bd` | 修复损坏的 Parquet 样本，并加入样本完整性检查 | 已推送 |
 | `lab2/jsonl-parquet` | `10e288402` | 设计文档补上样本完整性检查的说明 | 已推送 |
 | `lab2/jsonl-parquet` | `411f2bc56` | 拒绝不存在的 projection 列，修复初始化失败后的段错误，补齐契约用例 | 已推送 |
+| `lab2/jsonl-parquet` | `3eeb92ebb` | 单页大小单独设限，Row Group 中途失败时停止，补齐资源上限用例 | 已推送 |
 
 设计说明：`projects/seekdb/docs/file-sql-member-c.md`。
 
@@ -56,7 +57,13 @@ protocol、Snappy 解压、RLE/bit-packing hybrid 与 PLAIN 编码，未引入�
 | Parquet 列裁剪 | 单元测试覆盖 | 通过 | projection 里的列照常读取，未列出的列在行里是 NULL，schema 仍是文件的全部列 |
 | 非法 projection | 单元测试覆盖 | 通过 | projection 里有文件没有的列时 `init` 报错，不再产出全 NULL 的行 |
 | 初始化失败后调用 | 单元测试覆盖 | 通过 | `init` 失败后再 `next_batch` 返回错误且不产出行，不再段错误 |
+| 资源上限 | 单元测试覆盖 | 通过 | `max_row_groups`、`max_rows`、`max_columns`、`max_line_bytes` 超出时返回 `RESOURCE_LIMIT` |
+| 小批次 | 单元测试覆盖 | 通过 | 批次上限 64 字节时 `large_dict.parquet` 仍完整读出 5000 行且顺序正确 |
+| 单页上限 | 单元测试覆盖 | 通过 | 解压后单页的大小由 `max_page_bytes` 单独限制，不再借用批次上限 |
+| Row Group 中途失败 | 单元测试覆盖 | 通过 | 页面解不开时停止，不再带着只读了一半的 Row Group 继续，不再越界崩溃 |
+| 文件变化 | 单元测试覆盖 | 通过 | 扫描期间文件被改动时返回 `FILE_CHANGED` |
 | 新用例的有效性 | 临时破坏校验逻辑后重跑 | 通过 | 两个测试文件各报 3 条 FAIL，确认用例不是空跑 |
+| 崩溃用例的有效性 | 去掉"停止在失败处"的修复后重跑 | 通过 | `file_sql_parquet` 段错误，确认用例能覆盖该缺陷 |
 
 ### Parquet 样本损坏的排查记录
 
@@ -99,6 +106,26 @@ protocol、Snappy 解压、RLE/bit-packing hybrid 与 PLAIN 编码，未引入�
 DOUBLE、缺失字段补 NULL、拒绝嵌套对象与数组，以及 Parquet 的非法 projection 与
 初始化失败后调用。新用例的有效性做过验证：临时去掉校验逻辑后，两个测试文件各报
 3 条 FAIL，确认用例不是空跑。
+
+### 资源上限复核发现的两处缺陷
+
+逐条核对计划里"资源上限"与"不得崩溃"的要求时发现两个问题，都在 `3eeb92ebb` 修复：
+
+1. **批次上限被当成了单页大小的上限。**
+   读取器把 `max_batch_bytes` 同时当作"一次返回多少行"和"解压后一页最多多大"。
+   但文件的一页可以比一批行大，于是只要批次上限被调小，任何 snappy 文件就完全
+   读不出来（报 `cannot decompress the parquet page values`）。现在单页大小由
+   自己的 `max_page_bytes` 限制。
+
+2. **读到一个 Row Group 的中间失败时，读取器继续用那个只读了一半的 Row Group。**
+   行的数量已经设好了，下一次 `next_batch` 不会重读这个组，于是去读一个根本没
+   填过的列块，越界崩溃。现在失败就停：下一次调用同样报错，`rescan` 之后从头再来。
+
+复现方式：把 `unsupported_encoding.parquet`（数据页声明了读取器不支持的编码）
+放进样本目录，读到那一页时失败；去掉修复后单测直接段错误。
+
+JSONL 一侧复核后没有同类问题：它一次只读一条记录，没有"半个 Row Group"的状态，
+`next_record` 在失败后直接返回记录下来的错误，`rescan` 会清掉。
 
 ### 未运行的检查
 
