@@ -150,8 +150,102 @@ JSONL 一侧复核后没有同类问题：它一次只读一条记录，没有"�
 
 ## 成员 A、B
 
-尚未提交。基线分支 `lab2/file-discovery` 与 `lab2/csv` 已存在于远程，
-`lab2/csv` 由 B 提供 CSV 读取与类型推断。
+成员 A 的 `lab2/file-discovery` 已存在于远程，成员 B 的 `lab2/csv` 提供 CSV 读取与
+类型推断。两个分支都从 `2026-competition` 出发，集成记录见下一节。
+
+## 集成：框架与格式模块的接合
+
+成员 A 的 `lab2/file-discovery` 与成员 C 的 `lab2/jsonl-parquet` 都从
+`2026-competition`（`5bce9e06d`）出发，两个分支各自新增的同名文件会冲突。
+集成在 `lab2/integration` 分支上完成，未推送。
+
+### 提交
+
+| 提交 | 内容 |
+| --- | --- |
+| `429371fcb` | 合并 A 的框架到 C 的格式模块，解掉 4 处冲突 |
+| `bc9b69063` | 适配层：把 C 的 JSONL 与 Parquet 接进 A 的框架接口 |
+
+设计说明：`projects/seekdb/docs/file-sql-integration.md`。
+
+### 解掉的 4 处冲突
+
+| 文件 | 处理 |
+| --- | --- |
+| `file_sql_types.h` | `ScalarRow` 别名属于共享的类型模块，保留在此 |
+| `file_sql_csv.h` | 删除 CSV 模块里的别名副本 |
+| `sql_source_inventory.bzl` | 取两边源文件的并集 |
+| `unittest/sql/engine/basic/CMakeLists.txt` | 取两边测试目标的并集 |
+
+### 接口接合中发现的四处问题
+
+**一、框架的选项缺少模块需要的字段。** 框架的 `FileScanOptions` 里没有资源上限，
+也没有 projection，模块各自的选项无法被框架表达。框架选项增加了 `FileScanLimits
+limits` 与 `projection`，取值与模块原本自己使用的默认值相同，行为不变。
+
+**二、文件结束的表示方式不一致（会导致查询挂死）。** 三个模块报告"读完"的方式不同：
+
+| 模块 | `next_batch` 在文件末尾的返回 |
+| --- | --- |
+| CSV | `FileCode::END` |
+| JSONL | OK，行数为 0 |
+| Parquet | OK，行数为 0 |
+
+框架的执行算子只把 `END` 当作扫描结束，而 `inner_get_next_row` 在批次用完后会继续
+取下一批。若 JSONL 或 Parquet 在文件末尾返回 OK 加空批次，算子会永远取空批次，
+查询挂死。适配层把空批次统一翻译成 `END`。
+
+**三、`rescan` 的返回值被丢弃。** 框架接口把 `rescan` 声明成 `void`，A 的 CSV
+适配器直接丢弃了模块返回的状态。`rescan` 会失败（例如文件被替换导致 seek 失败），
+丢弃状态会让失败变成静默的错误结果。接口改为返回 `FileStatus`，三个适配器都透传。
+
+**四、适配层的注册。** JSONL 与 Parquet 的扫描器在加载时通过
+`register_file_scanner` 注册自己，注册幂等，解析器与执行算子不需要改动。
+
+### 模块级验证结果
+
+| 检查 | 命令 | 结果 | 备注 |
+| --- | --- | --- | --- |
+| 适配器与全部格式模块的编译 | 用 `build_release` 的真实编译参数逐个编译 `file_sql_*` 与算子 | 通过 | `file_sql_reader`、`file_sql_adapters`、`file_sql_scan`、`file_sql_path`、`file_sql_types`、`file_sql_csv`、`file_sql_jsonl`、`file_sql_parquet`、`ob_file_table_op`、`ob_dml_resolver` 全部 OK |
+| 类型推断 | `test_file_sql_types` | 通过 | 610 checks |
+| 路径校验 | `test_file_sql_path` | 通过 | 47 checks |
+| CSV 读取 | `test_file_sql_csv` | 通过 | 3224 checks |
+| Parquet 读取 | `test_file_sql_parquet` | 通过 | 20 个样本全部通过 |
+| JSONL 与 Parquet | `test_file_sql_jsonl_parquet` | 通过 | 官方样例的形状与 `file_sql_basic.result` 一致 |
+| **框架与模块的接合** | `test_file_sql_adapters` | 通过 | 新增用例，见下 |
+
+### 新增用例 `test_file_sql_adapters`
+
+该用例通过框架的接口驱动 JSONL 与 Parquet 两个模块，覆盖：
+
+- `create_file_scanner` 能拿到 JSONL 与 Parquet 的扫描器；
+- 字段并集与官方样例一致（6 列、3 条记录）；
+- Parquet 的形状与官方样例一致（1 列 `c1`、7 行、`min=0`、`max=6`、`sum=21`）；
+- `rescan` 之后能重新读到全部数据，且 `rescan` 的状态被报告；
+- 框架的资源上限能传到模块（超限时返回 `RESOURCE_LIMIT`）；
+- 不存在的 projection 被拒绝，而不是产出全 NULL 的行；
+- 文件末尾报告 `END`，而不是返回空批次。
+
+用例的有效性做过验证：把适配层里"空批次转 `END`"的转换去掉后，用例报 8 条 FAIL，
+确认这条用例覆盖的正是会挂死查询的那条路径。
+
+### 未运行的检查
+
+| 检查 | 原因 |
+| --- | --- |
+| `file_sql_basic.test` 端到端 | 框架的 `glob`、`DESCRIBE`、`COPY` 尚未实现，用例会在这些地方停下 |
+| ⑦ 双文件 JOIN | 需要框架的原生扫描接口，本次接合提供了接口，接合后的 JOIN 待实现 |
+| 隐藏测试覆盖的场景 | 官方 unit test 未随分支发布，已按其名称推断补充等价用例 |
+
+### 已知限制
+
+- 资源上限目前是框架里的常量，还没有做成会话变量。
+- 框架的路径校验只在解析阶段做一次，执行阶段重新打开文件之前没有再校验一次，
+  两次之间文件被换成指向别处的软链接不会被发现。
+- 表函数的语句不可比较，计划缓存不会复用文件表语句的计划，每次执行都会重新推断
+  Schema。
+- 一个查询会把文件读三遍：解析阶段推断一次，算子执行时为了发现文件变化再推断一次，
+  读数据时再读一遍。
 
 ## 评分项对照
 
@@ -159,11 +253,11 @@ JSONL 一侧复核后没有同类问题：它一次只读一条记录，没有"�
 | --- | ---: | --- | --- |
 | ① SQL 接口与文件发现 | 7 | A | 未运行 |
 | ② CSV 读取 | 10 | B | 未运行 |
-| ③ JSONL 读取 | 7 | C | 模块级通过，端到端未运行 |
-| ④ Parquet 读取 | 6 | C | 模块级通过，端到端未运行 |
+| ③ JSONL 读取 | 7 | C | 模块级通过，已接入框架，端到端未运行 |
+| ④ Parquet 读取 | 6 | C | 模块级通过，已接入框架，端到端未运行 |
 | ⑤ 确定性类型推断 | 6 | B | 未运行 |
 | ⑥ 单文件 SQL | 6 | A | 未运行 |
-| ⑦ 双文件 JOIN | 4 | C | 阻塞于 A 的框架 |
+| ⑦ 双文件 JOIN | 4 | C | 阻塞于框架的 JOIN 实现 |
 | ⑧ 安全、稳定性与工程质量 | 4 | A | 未运行 |
 | **合计** | **50** | | |
 
