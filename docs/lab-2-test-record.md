@@ -233,7 +233,7 @@ limits` 与 `projection`，取值与模块原本自己使用的默认值相同�
 
 | 检查 | 原因 |
 | --- | --- |
-| `file_sql_basic.test` 端到端 | 框架的 `glob`、`DESCRIBE`、`COPY` 尚未实现，用例会在这些地方停下 |
+| `file_sql_basic.test` 端到端 | 用例里有 `glob`，框架还没有实现 `glob`，用例在 `glob` 处停下 |
 | ⑦ 双文件 JOIN | 需要框架的原生扫描接口，本次接合提供了接口，接合后的 JOIN 待实现 |
 | 隐藏测试覆盖的场景 | 官方 unit test 未随分支发布，已按其名称推断补充等价用例 |
 
@@ -247,18 +247,74 @@ limits` 与 `projection`，取值与模块原本自己使用的默认值相同�
 - 一个查询会把文件读三遍：解析阶段推断一次，算子执行时为了发现文件变化再推断一次，
   读数据时再读一遍。
 
+## 端到端验证：部署集群并用 SQL 读取文件
+
+`lab2/integration` 的代码在 localVM 上部署成集群之后，用 SQL 直接验证了
+`read_csv`、`read_json`、`read_parquet`、具名选项和跨格式 JOIN。验证的过程中发现了
+9 处框架与 SQL 层接合的缺陷，都已修复并提交。
+
+### 部署
+
+| 项目 | 记录 |
+| --- | --- |
+| 部署方式 | `tools/deploy/obd.sh prepare -b ./build_release -p /tmp/obtest`，再 `deploy -c ./tools/deploy/single.yaml` |
+| 集群 | `single`，`127.0.0.1:10000`，租户 `oceanbase` |
+| 构建 | `./build.sh release --make -j2` |
+
+> 构建时必须设置 `M4=$HOME/opt/sysroot/usr/bin/m4`。bison 2.4.1 需要 `m4`，而这台
+> 机器的 `/usr/bin/m4` 不存在，解析器生成会静默失败（退出码 141），
+> `sql_parser_mysql_mode_tab.c` 不会更新，语法改动进不了二进制。
+
+### 验证的结果
+
+| 检查 | 结果 | 备注 |
+| --- | --- | --- |
+| `read_csv` 读 `basic.csv` | 通过 | 8 列 3 行，类型推断与官方样例一致，重复表头改名 `id__2`，多行引号正确 |
+| `read_csv` 的聚合 | 通过 | `count=3`、`sum(id)=6`、`avg(score)=91.92`、`sum(active)=2` |
+| `read_json`（`format = 'newline_delimited'`） | 通过 | 字段并集 6 列，缺失的字段是 NULL |
+| `read_ndjson` 别名 | 通过 | 与 `read_json` 一致 |
+| `read_parquet` | 通过 | `count=7`、`min(c1)=0`、`max(c1)=6`、`sum(c1)=21`，形状取自 footer |
+| CSV + JSONL 内连接 | 通过 | 3 行 |
+| CSV + JSONL 左连接 | 通过 | 每一行都保留 |
+| CSV + Parquet 内连接 | 通过 | 3 行 |
+| 具名选项 `header = true`、`sample_size = -1` | 通过 | 布尔值和整数都可以 |
+| 官方 mysqltest `file_sql_jsonl_parquet.test` | 通过 | 结果记录在 `r/mysql/file_sql_jsonl_parquet.result` |
+
+### 修复的缺陷
+
+| 提交 | 缺陷 | 原因 |
+| --- | --- | --- |
+| `34b03b5da` | 表函数的参数多于一个时无法解析 | 参数列表用 `malloc_non_terminal_node` 建的，节点没有容量，`push_back_list` 越界；改用 `malloc_list_node` |
+| `1a4892cd3` | 具名选项无法解析 | 词法分析器把 `=` 返回成 `COMP_EQ`，语法里用的是字符记号 `=`；选项名还要允许关键字（`format`） |
+| `fix(plan-cache)` | 表函数语句在计划缓存下报语法错误 | 计划缓存把路径参数化，解析器在解析阶段读不到路径；参数的常量不再参数化 |
+| `fix(file-table)` | 列数组越界，列也错位 | 规格用 `prepare_allocate` 填满了数组，之后又往里 push；改成按列下标放置，计划不用的列留空 |
+| `fix(file-table)` | 计划里的路径是野指针 | 路径指向语句的内存，语句销毁之后算子读到的是垃圾；字符串拷进计划的内存 |
+| `fix(rewrite)` | `min/max` 变换把列搬走 | 该变换会把表项的列项从语句里删掉，文件表的列不能删；对文件表跳过该变换 |
+| `fix(resolver)` | 查不到文件表的列 | 解析器的两处表类型分支不认识文件表；`header` 选项不接受布尔值 |
+| `fix(build)` | JSONL 与 Parquet 报告格式不支持 | `file_sql_adapters.cpp` 不在源文件清单里，链接器丢掉了适配层，扫描器从未注册 |
+| `fix(parser)` | 计划缓存复用别的文件的计划 | 文件表的路径是计划的一部分，路径变了计划必须重做；路径不再参数化，语句不进计划缓存 |
+
+### 仍未解决
+
+| 问题 | 现象 | 状态 |
+| --- | --- | --- |
+| `glob()` 没有实现 | `select ... from glob('...')` 报 1235 `the file table function is not supported` | 框架没有实现 glob，评分项 ① 的文件发现还差这一块 |
+| 文件表上的 WHERE 条件恒为假 | `select ... from read_csv(...) where id > 1` 返回空集 | 条件被当成常量表达式，成了启动过滤，第一行不满足就结束扫描；已经定位到常量的标记，未修 |
+| `DESCRIBE` 给的是执行计划 | `describe select * from read_csv(...)` 输出的是执行计划，不是列清单 | 官方样例期望列清单 |
+| `file_sql_basic.test` 录不了结果 | 用例里有 `glob`，在 glob 处停下 | 依赖 glob |
+
 ## 评分项对照
 
 | 评分项 | 分 | 负责人 | 状态 |
 | --- | ---: | --- | --- |
-| ① SQL 接口与文件发现 | 7 | A | 未运行 |
-| ② CSV 读取 | 10 | B | 未运行 |
-| ③ JSONL 读取 | 7 | C | 模块级通过，已接入框架，端到端未运行 |
-| ④ Parquet 读取 | 6 | C | 模块级通过，已接入框架，端到端未运行 |
-| ⑤ 确定性类型推断 | 6 | B | 未运行 |
-| ⑥ 单文件 SQL | 6 | A | 未运行 |
-| ⑦ 双文件 JOIN | 4 | C | 阻塞于框架的 JOIN 实现 |
-| ⑧ 安全、稳定性与工程质量 | 4 | A | 未运行 |
+| ① SQL 接口与文件发现 | 7 | A | 部分通过：`read_csv`、`read_json`、`read_parquet` 端到端通过，`glob` 未实现 |
+| ② CSV 读取 | 10 | B | 通过 |
+| ③ JSONL 读取 | 7 | C | 通过 |
+| ④ Parquet 读取 | 6 | C | 通过 |
+| ⑤ 确定性类型推断 | 6 | B | 通过：推断的列与官方样例一致 |
+| ⑥ 单文件 SQL | 6 | A | 部分通过：扫描、投影、聚合、具名选项通过，文件表上的 WHERE 条件未修 |
+| ⑦ 双文件 JOIN | 4 | C | 通过：CSV + JSONL、CSV + Parquet |
+| ⑧ 安全、稳定性与工程质量 | 4 | A | 部分通过：路径校验有效，单元测试通过，隐藏测试未运行 |
 | **合计** | **50** | | |
 
 > 官方文字同时出现 50 分与"沿用 30 分"，口径待确认；此处按评分表相加的 50 分记录。
