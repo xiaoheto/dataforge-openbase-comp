@@ -168,6 +168,11 @@ JSONL 一侧复核后没有同类问题：它一次只读一条记录，没有"�
 
 设计说明：`projects/seekdb/docs/file-sql-integration.md`。
 
+集成之后的修改都在 `lab2/jsonl-parquet` 分支上，通过 PR 合入 `lab2/integration`，
+集成分支只接受经过评审的 PR。PR 的地址：
+
+<https://github.com/xiaoheto/seekdb-2026/compare/lab2/integration...lab2/jsonl-parquet>
+
 ### 解掉的 4 处冲突
 
 | 文件 | 处理 |
@@ -302,7 +307,7 @@ limits` 与 `projection`，取值与模块原本自己使用的默认值相同�
 | --- | --- | --- |
 | `COPY` 没有实现 | `copy (select ...) to '...'` 报 1064 | 官方用例 `file_sql_basic.test` 的最后一段是 `COPY`，用例在那一段停下，录不出完整的结果 |
 | 文件表上的 WHERE 条件恒为假 | `select ... from read_csv(...) where id > 1` 返回空集 | 条件被当成常量表达式，成了启动过滤，第一行不满足就结束扫描；已经定位到常量的标记，未修 |
-| `DESCRIBE` 给的是执行计划 | `describe select * from read_csv(...)` 输出的是执行计划，不是列清单 | 官方样例期望列清单 |
+| `DESCRIBE` 给的是执行计划 | `describe select * from read_csv(...)` 输出的是执行计划，不是列清单 | 这个版本里 `describe select * from (select 1 as a) t` 给的也是执行计划，所以不是文件表独有的问题；官方样例期望列清单 |
 | `file_sql_basic.test` 录不了结果 | 用例的最后一段是 `COPY`，框架还没有实现 `COPY` | 依赖 `COPY` |
 
 ## 评分项对照
