@@ -15,7 +15,7 @@
 | Part C 提交 | `lab2/jsonl-parquet`，`d960b0fa9`、`309ec9b94`、`790f728bd` |
 | 构建命令 | `./build.sh release --make -j2`（首次加 `--init`） |
 | 编译器 | clang++-17（`deps/3rd/usr/local/oceanbase/devtools`） |
-| 单元测试 | `ctest --test-dir /tmp/build_fs_test` |
+| 单元测试 | `ctest --test-dir /tmp/build_fs_test`，6 个用例全部通过（types、path、csv、parquet、jsonl_parquet、adapters） |
 
 ## 成员 C：JSONL 与 Parquet
 
@@ -233,7 +233,7 @@ limits` 与 `projection`，取值与模块原本自己使用的默认值相同�
 
 | 检查 | 原因 |
 | --- | --- |
-| `file_sql_basic.test` 端到端 | 用例里有 `glob`，框架还没有实现 `glob`，用例在 `glob` 处停下 |
+| `file_sql_basic.test` 端到端 | 用例的最后一段是 `COPY`，框架还没有实现 `COPY`，用例在那一段停下 |
 | ⑦ 双文件 JOIN | 需要框架的原生扫描接口，本次接合提供了接口，接合后的 JOIN 待实现 |
 | 隐藏测试覆盖的场景 | 官方 unit test 未随分支发布，已按其名称推断补充等价用例 |
 
@@ -278,6 +278,7 @@ limits` 与 `projection`，取值与模块原本自己使用的默认值相同�
 | CSV + JSONL 左连接 | 通过 | 每一行都保留 |
 | CSV + Parquet 内连接 | 通过 | 3 行 |
 | 具名选项 `header = true`、`sample_size = -1` | 通过 | 布尔值和整数都可以 |
+| `glob()` | 通过 | 一列 `file`，值是文件的完整路径，模式匹配到的目录不算文件 |
 | 官方 mysqltest `file_sql_jsonl_parquet.test` | 通过 | 结果记录在 `r/mysql/file_sql_jsonl_parquet.result` |
 
 ### 修复的缺陷
@@ -293,26 +294,27 @@ limits` 与 `projection`，取值与模块原本自己使用的默认值相同�
 | `fix(resolver)` | 查不到文件表的列 | 解析器的两处表类型分支不认识文件表；`header` 选项不接受布尔值 |
 | `fix(build)` | JSONL 与 Parquet 报告格式不支持 | `file_sql_adapters.cpp` 不在源文件清单里，链接器丢掉了适配层，扫描器从未注册 |
 | `fix(parser)` | 计划缓存复用别的文件的计划 | 文件表的路径是计划的一部分，路径变了计划必须重做；路径不再参数化，语句不进计划缓存 |
+| `feat(file-sql)` | `glob()` 报格式不支持 | 框架已有模式展开与 `secure_file_priv` 校验，缺的是接线：格式名、解析器的列、算子的展开 |
 
 ### 仍未解决
 
 | 问题 | 现象 | 状态 |
 | --- | --- | --- |
-| `glob()` 没有实现 | `select ... from glob('...')` 报 1235 `the file table function is not supported` | 框架没有实现 glob，评分项 ① 的文件发现还差这一块 |
+| `COPY` 没有实现 | `copy (select ...) to '...'` 报 1064 | 官方用例 `file_sql_basic.test` 的最后一段是 `COPY`，用例在那一段停下，录不出完整的结果 |
 | 文件表上的 WHERE 条件恒为假 | `select ... from read_csv(...) where id > 1` 返回空集 | 条件被当成常量表达式，成了启动过滤，第一行不满足就结束扫描；已经定位到常量的标记，未修 |
 | `DESCRIBE` 给的是执行计划 | `describe select * from read_csv(...)` 输出的是执行计划，不是列清单 | 官方样例期望列清单 |
-| `file_sql_basic.test` 录不了结果 | 用例里有 `glob`，在 glob 处停下 | 依赖 glob |
+| `file_sql_basic.test` 录不了结果 | 用例的最后一段是 `COPY`，框架还没有实现 `COPY` | 依赖 `COPY` |
 
 ## 评分项对照
 
 | 评分项 | 分 | 负责人 | 状态 |
 | --- | ---: | --- | --- |
-| ① SQL 接口与文件发现 | 7 | A | 部分通过：`read_csv`、`read_json`、`read_parquet` 端到端通过，`glob` 未实现 |
+| ① SQL 接口与文件发现 | 7 | A | 通过：`read_csv`、`read_json`、`read_parquet`、`glob` 端到端通过 |
 | ② CSV 读取 | 10 | B | 通过 |
 | ③ JSONL 读取 | 7 | C | 通过 |
 | ④ Parquet 读取 | 6 | C | 通过 |
 | ⑤ 确定性类型推断 | 6 | B | 通过：推断的列与官方样例一致 |
-| ⑥ 单文件 SQL | 6 | A | 部分通过：扫描、投影、聚合、具名选项通过，文件表上的 WHERE 条件未修 |
+| ⑥ 单文件 SQL | 6 | A | 部分通过：扫描、投影、聚合、具名选项通过，文件表上的 WHERE 条件未修，`COPY` 未实现 |
 | ⑦ 双文件 JOIN | 4 | C | 通过：CSV + JSONL、CSV + Parquet |
 | ⑧ 安全、稳定性与工程质量 | 4 | A | 部分通过：路径校验有效，单元测试通过，隐藏测试未运行 |
 | **合计** | **50** | | |
