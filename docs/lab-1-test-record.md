@@ -123,3 +123,27 @@ Part A 只覆盖自身两个评分项，其余四项如实记为未运行。`ai_
 - 虚拟机上的构建与部署全部无 root 完成，依赖装在 `~/opt`：`m4`（bison 生成 parser 需要 `M4` 环境变量）、`libaio.so.1t64`（`src/oblib/CMakeLists.txt` 找的是 `libaio.so.1t64`，系统里只有 `libaio.so.1`）、`libtool`（`tools/deploy/copy.sh` 用 `libtool --mode=install cp` 拷二进制）。
 - `tools/deploy/activate_obd.sh` 的 `OBD_HOME` 修复（`$DIR` 未定义，应为 `$DEPLOY_PATH`）与 obd 插件补丁（seekdb 1.4 不再提供 `oceanbase.__all_server`）都是本地部署改动，保持未提交状态。
 
+
+## 集成分支的合并（2026-11-17）
+
+Lab 1 的五个分支都从 `lab1/integration`（`b6cc9ac51`）分出，合并顺序与结果：
+
+| 顺序 | 分支 | 合并方式 | 冲突 |
+| --- | --- | --- | --- |
+| 1 | `lab1/ollama` | 合并提交 | 无 |
+| 2 | `lab1/ai-rerank` | 合并提交 | 无 |
+| 3 | `lab1/ai-embed-single` | 合并提交 | 1 处：`ob_ai_func_client.cpp` 里两行注释，代码两边完全相同，保留有注释的一侧 |
+| 4 | `lab1/ai-embed-batch` | 合并提交 | 无 |
+| 5 | `lab1/ai-endpoint-max-concurrency` | 合并提交 | 无 |
+
+合并后的 `lab1/integration` 就是 `lab1/ollama` → `lab1/ai-rerank` →
+`lab1/ai-embed-single` → `lab1/ai-embed-batch` →
+`lab1/ai-endpoint-max-concurrency` 的顺序，集成分支没有 force push。
+
+对应的 PR：`#1`（`lab1/ai-embed-single`）、`#2`（`lab1/ai-embed-batch`）、
+`#5`（`lab1/ollama`）、`#6`（`lab1/ai-rerank`）的 base 都改成
+`lab1/integration`，`#11`（`lab1/ai-endpoint-max-concurrency`）是这次新建的，
+之前这个分支只有分支没有 PR。
+
+`lab1/ai-endpoint-max-concurrency` 修改了内表 `__all_ai_model_endpoint` 的结构，
+**已经存在的集群必须重建**，旧表没有 `max_concurrency` 列。
