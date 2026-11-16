@@ -17,6 +17,10 @@
 | 编译器 | clang++-17（`deps/3rd/usr/local/oceanbase/devtools`） |
 | 单元测试 | `ctest --test-dir /tmp/build_fs_test`，6 个用例全部通过（types、path、csv、parquet、jsonl_parquet、adapters） |
 
+成员 A 的验证在另一台机器上完成，环境见"成员 A"一节：Ubuntu 24.04 WSL2，
+18 核 / 7.4 GiB，`./build.sh release --make -j3`，单实例 `127.0.0.1:10001`，
+`memory_budget: 4G`。
+
 ## 成员 C：JSONL 与 Parquet
 
 ### 分支与提交
@@ -148,10 +152,112 @@ JSONL 一侧复核后没有同类问题：它一次只读一条记录，没有"�
   `secure_file_priv`、符号链接校验由 A 的公共框架负责；过滤、聚合、排序与 JOIN
   由 seekdb 原生算子完成。
 
-## 成员 A、B
+## 成员 A：表函数、开关、路径检查
 
-成员 A 的 `lab2/file-discovery` 已存在于远程，成员 B 的 `lab2/csv` 提供 CSV 读取与
-类型推断。两个分支都从 `2026-competition` 出发，集成记录见下一节。
+### 分支与提交
+
+| 分支 | 提交 | 内容 | 状态 |
+| --- | --- | --- | --- |
+| `lab2/file-discovery` | `516956d8b` 起 | ① 的框架：表函数、`enable_file_sql` 开关、路径校验、扫描算子、计划与列的定义 | 已合入 `lab2/integration` |
+| `lab2/parse-error-code` | `96669e4ea` | 第二个位置参数由语法分析期拒绝，报 `1064` | 已合入 `lab2/integration` |
+| `lab2/parse-error-code` | `d67611db0` | FROM 子句在表解析失败时停止（加固，见下） | 已合入 `lab2/integration` |
+| `lab2/parse-error-code` | `5274b9a81` | 文件表上的 WHERE 条件逐行求值 | 已合入 `lab2/integration` |
+| `lab2/parse-error-code` | `35bb9f139` | 计划里的路径是 C 字符串 | 已合入 `lab2/integration` |
+
+PR：`<https://github.com/xiaoheto/seekdb-2026/pull/9>`（`lab2/parse-error-code` →
+`lab2/integration`）、`<https://github.com/xiaoheto/seekdb-2026/pull/10>`
+（`lab2/jsonl-parquet` → `lab2/integration`）。两个 PR 都以快进方式合入，
+集成分支没有 force push。
+
+### 第二个位置参数报 1064
+
+表函数的参数列表拆成路径参数与选项参数，非首元素只能是
+`column_name COMP_EQ simple_expr`，第二个位置参数在**语法分析期**被拒，
+错误码 `OB_ERR_PARSE_SQL` 映射到 `ER_PARSE_ERROR`，即 `1064`。
+改之前语法分析器不拒绝，语义解析阶段报 `OB_ERR_PARSER_SYNTAX`，即 `1149`，
+与官方用例的期望不符。官方用例的期望值改回 `--error 1064`，
+改完之后官方测试文件与官方基线逐字节相同（blob `04e09fef2`），
+`file_sql_basic.result` 也是官方原版（blob `90a2760e`）。
+语义解析阶段的那段检查保留为兜底，消息与原来一致。
+
+### 文件表上的 WHERE 条件恒为假（已修）
+
+**现象**：`select ... from read_csv(...) where id > 1` 返回空集，
+`where name = 'Bob'` 也返回空集，`where id = 1` 返回全部三行。
+查询不报错，返回的是错误结果。
+
+**原因**：读文件的算子一行一行地产出行。框架在按行驱动算子时不会清除
+"这个表达式已经求过值"的标记，产出行的算子要自己清除
+（`ObValuesTableAccessOp::inner_get_next_row()` 就是这么做的）。
+文件表的算子没有清除，于是 WHERE 条件只在文件的**第一行**上求过一次值，
+后面每一行都用这个结果：第一行满足条件时所有行都通过，第一行不满足时所有行
+都被过滤掉。算子走批量接口时框架会清除标记，所以聚合上层的查询是逐行正确的，
+只有直接返回行的查询不对。
+
+**修法**：算子在产出每一行之前调用 `clear_evaluated_flag()`。
+
+**验证**（同一棵工作区，单实例，端口 10001）：
+
+| 查询 | 修之前 | 修之后 |
+| --- | --- | --- |
+| `where id > 1`（CSV、JSONL） | 空集 | `2`、`3` |
+| `where id = 1`（CSV、JSONL） | 全部三行 | `1` |
+| `where name = 'Bob'` | 空集 | `2` |
+| `where name <> 'Bob'` | 空集 | `1`、`3` |
+| `where id is not null` | 三行 | 三行 |
+| `where 1 = 1` | 三行 | 三行 |
+
+用例 `file_sql_jsonl_parquet` 里那条过滤 JSONL 的用例原本记录的期望值就是这个
+错误输出（只有表头的空集），"1/1 通过"是循环论证。现在期望值改成真实输出，
+并补了过滤 CSV、过滤 JSONL、保留所有满足条件的行三组用例。
+
+### 计划里的路径没有零字节结尾（已修）
+
+**现象**：同一个查询有时成功有时失败，报 `1017 File not exist`。
+复现时 `read_json(..., format = 'newline_delimited') where name <> 'Bob'`
+每次都失败，而 `where name != 'Bob'` 每次都成功；官方套件跑到第 57 行时
+也出现过一次 `File not exist`。
+
+**原因**：文件表定义里的字符串在语句的内存里，计划活得比语句久，所以它们被复制到
+计划的内存里。复制时没有带零字节结尾（`ob_write_string()` 只有被要求时才写
+C 字符串）。算子把计划里的路径交给 `fopen()`，`fopen()` 会一直读到零字节，
+没有零字节时文件名会读到后面的内存里，打开失败。能不能打开取决于堆里的内容，
+所以同一个查询的结果随堆的内容变化，计划缓存让这个差别更容易出现。
+
+**修法**：路径、格式与 null 字符串都按 C 字符串写入计划。
+
+**验证**：同一个查询连续执行多次、计划缓存开与关各一轮，文件每次都被正确打开。
+
+### 关于那次 observer 崩溃的更正
+
+早期记录里写的"修复了一个崩溃"（表函数被拒绝时 observer 以 SIGSEGV 退出），
+**这个说法是错的**。本仓库的 `OZ` 宏是
+`OC_I5(func, ...) = do { if (OB_SUCC(ret)) { if (OB_FAIL(func)) {...} } } while (0)`，
+即函数只在 `ret` 仍是成功时才执行。`resolve_table` 失败时 `ret` 已经不是成功，
+后面两句 `OZ(...)` 会被整体跳过，`table_item` 从来没有被解引用过。
+`d67611db0` 的改动与改写前行为等价，属于把隐含行为写显的加固，可以保留，
+但它没有修掉任何崩溃。
+
+那次 `ERROR 2013 Lost connection` 的**根因没有定位**，没有栈也没有 core。
+它发生在集群刚新建、observer 被重启重建的时候，与解析路径无关的可能性更大。
+文档 `projects/seekdb/docs/file-sql-integration.md` 已按这个结论改写。
+
+### 成员 A 的验证结果
+
+| 检查 | 结果 | 备注 |
+| --- | --- | --- |
+| 官方 `file_sql_basic` | 部分通过 | 从第一条到 `DESCRIBE` 之前的每一条输出与官方期望一致；`DESCRIBE` 给的是执行计划，`COPY` 未实现，用例在第 57 行停下 |
+新增的过滤用例全部通过 |
+| 自建 `file_sql_jsonl_parquet` | 通过 | 期望值已改成真实输出，新增的过滤用例全部通过 |
+新增的过滤用例全部通过 |
+| 路径校验单元测试 | 通过 | 47 项检查 |
+| 第二个位置参数 | 通过 | `select * from read_csv('<path>', 'xml')` 报 `1064` |
+| 开关关闭时的表函数 | 通过 | 报 `1235`，observer 存活 |
+| `sample_size` | 通过 | 报 `1235` |
+
+### 成员 B
+
+成员 B 的 `lab2/csv` 提供 CSV 读取与类型推断，已随集成进入 `lab2/integration`。
 
 ## 集成：框架与格式模块的接合
 
@@ -306,22 +412,23 @@ limits` 与 `projection`，取值与模块原本自己使用的默认值相同�
 | 问题 | 现象 | 状态 |
 | --- | --- | --- |
 | `COPY` 没有实现 | `copy (select ...) to '...'` 报 1064 | 官方用例 `file_sql_basic.test` 的最后一段是 `COPY`，用例在那一段停下，录不出完整的结果 |
-| 文件表上的 WHERE 条件恒为假 | `select ... from read_csv(...) where id > 1` 返回空集 | 条件被当成常量表达式，成了启动过滤，第一行不满足就结束扫描；已经定位到常量的标记，未修 |
+| 文件表上的 WHERE 条件恒为假 | `select ... from read_csv(...) where id > 1` 返回空集 | **已修**。原因是算子没有清除"表达式已经求过值"的标记，条件只在第一行上求过一次值。修法与验证见"成员 A"一节 |
 | `DESCRIBE` 给的是执行计划 | `describe select * from read_csv(...)` 输出的是执行计划，不是列清单 | 这个版本里 `describe select * from (select 1 as a) t` 给的也是执行计划，所以不是文件表独有的问题；官方样例期望列清单 |
 | `file_sql_basic.test` 录不了结果 | 用例的最后一段是 `COPY`，框架还没有实现 `COPY` | 依赖 `COPY` |
+| 计划里的路径没有零字节结尾 | 同一个查询有时成功有时失败，报 `1017 File not exist` | **已修**。路径按 C 字符串写入计划。验证见"成员 A"一节 |
 
 ## 评分项对照
 
 | 评分项 | 分 | 负责人 | 状态 |
 | --- | ---: | --- | --- |
-| ① SQL 接口与文件发现 | 7 | A | 通过：`read_csv`、`read_json`、`read_parquet`、`glob` 端到端通过 |
+| ① SQL 接口与文件发现 | 7 | A | 部分通过：`read_csv`、`read_json`、`read_parquet`、`glob` 端到端通过，第二个位置参数报 `1064`；**`DESCRIBE` 未实现**，本版本语法里 `describe` 是 `explain` 的别名，给出的是执行计划而不是官方期望的六列 |
 | ② CSV 读取 | 10 | B | 通过 |
 | ③ JSONL 读取 | 7 | C | 通过 |
 | ④ Parquet 读取 | 6 | C | 通过 |
 | ⑤ 确定性类型推断 | 6 | B | 通过：推断的列与官方样例一致 |
-| ⑥ 单文件 SQL | 6 | A | 部分通过：扫描、投影、聚合、具名选项通过，文件表上的 WHERE 条件未修，`COPY` 未实现 |
+| ⑥ 单文件 SQL | 6 | A | 部分通过：扫描、投影、聚合、具名选项、`ORDER BY`、`LIMIT`、`WHERE`（逐行求值，已修）通过；**`COPY` 未实现** |
 | ⑦ 双文件 JOIN | 4 | C | 通过：CSV + JSONL、CSV + Parquet |
-| ⑧ 安全、稳定性与工程质量 | 4 | A | 部分通过：路径校验有效，单元测试通过，隐藏测试未运行 |
+| ⑧ 安全、稳定性与工程质量 | 4 | A | 部分通过：路径校验有效（单元测试 47 项），开关默认关闭，计划里的路径按 C 字符串写入，隐藏测试未运行 |
 | **合计** | **50** | | |
 
 > 官方文字同时出现 50 分与"沿用 30 分"，口径待确认；此处按评分表相加的 50 分记录。
