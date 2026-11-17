@@ -166,17 +166,57 @@ copy t to '/tmp/table_export.csv' (format csv, header, nullstr 'NULL');
 如果评测已经切到 round 2（MiniVectorDB + JSONL stdio 协议的新任务），
 上面所有工作都不算分。**这一条只能问老师。**
 
-## 7. 待办清单
+## 7. 待办清单与分工
 
-| 优先级 | 事项 | 负责人 | 验收方式 |
-| --- | --- | --- | --- |
-| P0 | 签 CLA | 队长本人 | <https://cla-assistant.io/oceanbase/seekdb?pullRequest=2689> |
-| P0 | 问老师 round2 归属与提测口径 | 队长本人 | 邮件/微信回复 |
-| P0 | 修 JOIN 的 ON 条件列引用 | A | `parquet left join csv` 能跑通，且官方用例仍全绿 |
-| P1 | 支持 `COPY <表名> TO` | A | 建表 → copy → `read_csv` 读回 |
-| P1 | `COPY` 补 `delimiter`/`quote`/`escape` | A | 导出后读回的值一致 |
-| P2 | `DESCRIBE` 支持 select 的结果列 | A | `describe select id, name from read_csv(...)` 给出两列 |
-| P2 | 复现 2013 崩溃 | A | 有栈或有 core，或能证明与代码无关 |
+分工按**代码层**和**评分项**分开：一个改动落在谁的代码里由谁写，
+对应的评分项由谁验证和出证据。剩下的口子全在框架层（解析器、解析层、执行计划、算子），
+这部分只有一个人能安全地改；但证据、用例和跨格式验证要分给对应评分项的负责人，
+最后一天不能把活都堆在一个人身上。
+
+| 优先级 | 事项 | 写代码 | 出用例与证据 | 验收方式 |
+| --- | --- | --- | --- | --- |
+| P0 | 签 CLA | — | 队长本人 | <https://cla-assistant.io/oceanbase/seekdb?pullRequest=2689> |
+| P0 | 问老师 round2 归属与提测口径 | — | 队长本人 | 邮件/微信回复 |
+| P0 | 修 JOIN 的 ON 条件列引用 | A（解析层的列解析） | C（⑦ 的归属人） | `parquet left join csv` 跑通，官方用例仍全绿 |
+| P1 | 支持 `COPY <表名> TO` | A（语法与解析层） | C | 建表 → copy → `read_csv` 读回 |
+| P1 | `COPY` 补 `delimiter`/`quote`/`escape` | A（选项解析） | C | 导出后读回的值一致 |
+| P2 | `DESCRIBE` 支持 select 的结果列 | A（解析层） | B（类型推断的归属人） | `describe select id, name from read_csv(...)` 给出两列 |
+| P2 | `header = false` 时的列名（`_c1` 还是 `column0`） | — | B | 与官方 DuckDB 行为对齐，或确认隐藏用例的期望 |
+| P2 | 复现 2013 崩溃 | A |  whoever 能拿到 observer 日志/core | 有栈或有 core，或能证明与代码无关 |
+
+### 为什么代码都在框架层，证据却要分出去
+
+Lab 2 的分工是：A 负责 ①⑥⑧（表函数注册、执行计划接入、聚合下推、开关与路径校验），
+B 负责 ②⑤（CSV 与类型推断），C 负责 ③④⑦（JSONL、Parquet、跨格式 JOIN）。
+剩下的四个口子**代码**全在框架层，所以写代码只能集中在一个人身上；
+但**验证**必须分给评分项的归属人：
+
+- ⑦ 的 4 分归 C，而 JOIN 的 bug 在 A 的解析层 —— A 定位并改解析层，C 写
+  `parquet left join csv` 的回归用例并核对结果，两边都要动。
+- C 还应该做一件对隐藏用例最有用的事：**照另外两支队伍的做法扩展官方用例文件**
+  （他们把 `GROUP BY`/`HAVING`、`read_ndjson`、`glob('*.csv')`、`describe ... header = false`、
+  copy 覆盖已存在文件、`copy <表名>` 都加进了 `file_sql_basic.test`）。
+  官方用例文件本身不要改，加到团队自己的 `file_sql_jsonl_parquet.test` 里，
+  这样既不改官方的期望，又能提前撞出隐藏用例的形状。
+- B 核对 CSV 侧的边界：无表头时的列名、重复列名改名、字段内换行、NULL。
+
+### 改完代码之后
+
+谁改谁推，而且**两个仓库都要推**，否则 PR 不会更新：
+
+```bash
+git push xiaoheto/seekdb competition/seekdb-lab1-lab2   # 真 fork，PR #2689 的头
+git push origin 2026-competition                          # 团队内部仓库
+```
+
+推完跑一遍官方用例再推，**不要把没验证的提交推到 PR 上**：
+
+```bash
+tools/deploy/obd.sh mysqltest -n single --disable-reboot \
+  --test-dir ./mysql_test/test_suite/file_sql/t \
+  --result-dir ./mysql_test/test_suite/file_sql/r \
+  --test-set file_sql_basic,file_sql_jsonl_parquet
+```
 
 ## 8. 分支与提交地图
 
