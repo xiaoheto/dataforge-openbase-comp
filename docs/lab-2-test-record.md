@@ -455,7 +455,8 @@ tools/deploy/obd.sh mysqltest -n single --disable-reboot \
 ## COPY 与 DESCRIBE 落地，官方用例全绿（2026-11-17 傍晚）
 
 分支：`lab2/copy`（从 `2026-competition` 的合并提交 `8adec58b6` 拉出），
-合并提交 `3f37702b9` 已推送到提测分支 `2026-competition`。
+合并提交 `3f37702b9` 与 `dba9cd3cf`（`nullstr` 与 describe 的 glob）
+已推送到提测分支 `2026-competition`。
 
 ### 改动
 
@@ -518,6 +519,8 @@ id	name	score
 
 | 偏差 | 说明 |
 | --- | --- |
-| `nullstr` 只接受不生效 | 空值仍写成 OB 默认的 `\N`，官方用例的三列里没有空值，不影响官方用例 |
 | 表头行按逗号拼接 | 列名里带逗号时没有按 CSV 规则加引号 |
-| `describe` 只支持文件表 | `describe select ...` 的语句不是文件表时报 `1235`；`describe` 一个文件表的 select 时列名是 select 的列名，不是文件的列名 |
+| `describe` 只支持 `select *` 的文件表 | `describe` 一个不是文件表的语句时报 `1235`；`describe select id from read_csv(...)` 里的列名不是文件的列名，describe 描述的是语句的结果列，目前只支持 `select *` |
+
+`nullstr` 已经生效：空值写成选项给的值（`copy ... (nullstr 'NULL')` 写成 `NULL`），
+没有 `nullstr` 时空值仍写成 OB 默认的 `\N`。
