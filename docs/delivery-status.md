@@ -5,9 +5,17 @@ Lab 的详细测试记录在 [lab-2-test-record.md](lab-2-test-record.md)，本�
 
 ## 1. 一句话结论
 
-代码已经完成并推送，提测的 PR 也已经开到官方仓库（`oceanbase/seekdb#2689`）。
-公开的官方用例全部跑绿。剩下的是**隐藏用例**和**三个已知功能缺口**，其中 JOIN 的缺口最可能
-被隐藏用例撞到，必须先修。
+代码已经完成并推送。公开的官方用例（Lab 1 的 `ai_function` 12 个 + Lab 2 的
+`file_sql_basic`、`file_sql_jsonl_parquet`）全部跑绿。今天补上了 JOIN 的一个
+use-after-free、`COPY <表名> TO` 和 `COPY` 的 `delimiter`/`quote`/`escape` 选项。
+
+**我们的作业范围是 Lab 1 + Lab 2 = 110 分**（`docs/competition-labs.md`：
+「课程使用官方 seekdb 赛题中的前两个赛题」）。评测系统会评三项共 160 分，
+第三项「AI 列 50 分」**不在我们的作业范围内**（已与老师确认），
+官方基线里也只有它的用例没有实现，我们不碰它。
+
+**提测入口是 `xiaoheto/seekdb-2026` 仓库 + 分支 + commit id**，
+不是向上游官方仓库提 PR（那是另一道「seekdb 基础实践」赛题的内容，见第 3 节）。
 
 ## 2. 交付物在哪
 
@@ -26,8 +34,13 @@ Lab 的详细测试记录在 [lab-2-test-record.md](lab-2-test-record.md)，本�
 
 ## 3. 提测口径（这一条之前搞错过）
 
-官方赛题的提测方式是**向官方仓库 `oceanbase/seekdb` 的 `2026-competition` 分支提 PR**，
-评测平台按 PR 的头提交评测。证据：官方仓库里其他队伍的提测 PR 都是这个形态。
+**代码题的提测入口**：在提测平台上填 `xiaoheto/seekdb-2026` 仓库、
+分支和 commit id，评测系统按这个提交评测三项。
+
+我们另外在官方仓库开了 PR（`oceanbase/seekdb#2689`），那是**另一道赛题**
+（原赛题一部署、原赛题二 PR 与新增 fork 项已合并为「seekdb 基础实践」）的要求，
+**不计入这 160 分**，但留着有用。官方仓库里其他队伍的提测 PR 都是这个形态，
+所以它也不是错的做法，只是属于另一道题。
 
 | PR | 头分支 | 队伍 | CLA |
 | --- | --- | --- | --- |
@@ -37,8 +50,16 @@ Lab 的详细测试记录在 [lab-2-test-record.md](lab-2-test-record.md)，本�
 | [#2523](https://github.com/oceanbase/seekdb/pull/2523) | `feat/file-as-database` | au9ovo | 未签 |
 | [#2516](https://github.com/oceanbase/seekdb/pull/2516) | `2026-competition` | jafive-li | 未签 |
 
-教师邮件里“英雄榜查不到队伍成绩”的原因就在这里：**提测之前 fork 到官方是 0 个 PR**，
-平台没有可评测的提交。PR 开出来之后这一条才成立。
+### 提测要填什么
+
+| 字段 | 填什么 |
+| --- | --- |
+| 仓库 | `xiaoheto/seekdb-2026` |
+| 分支 | `2026-competition` |
+| commit id | 见第 2 节表格里 `2026-competition` 的最新提交 |
+
+推给评测的分支要满足三个条件：**能编译通过、官方用例全绿、包含所有改动**。
+提交之后平台会评三项并回传结果，AI 列那项会是 0 分（不在我们的范围）。
 
 `license/cla` 需要**本人**在 <https://cla-assistant.io/oceanbase/seekdb?pullRequest=2689>
 登录 GitHub 后签一次（法律协议不能代签）。别的队伍也有没签的，看起来不是评分的硬门槛，
@@ -95,7 +116,7 @@ tools/deploy/obd.sh mysqltest -n single --disable-reboot \
 | `file_sql_basic`（**官方**） | 通过，整条文件，包括第 44 行的 `DESCRIBE` 六列和第 57 行的 `COPY` 导出读回 |
 | `file_sql_jsonl_parquet`（自建） | 通过 |
 | `ai_function` 全套 12 个 | 通过 |
-| `ai_column` 5 个 | 通过 |
+| `ai_column` 5 个 | **5/5 失败**，但不是我们的问题：官方基线的语法里没有 `AI COLUMN`（0 命中），upstream master 也没有，这一项不在我们的作业范围内 |
 | 格式模块单元测试 | 通过（含 47 项路径检查） |
 
 > 跑 AI 用例需要两件事：`tools/mock-ai-service/mock_ai_service.py 8000` 起服务，
@@ -104,7 +125,43 @@ tools/deploy/obd.sh mysqltest -n single --disable-reboot \
 
 ## 6. 已知缺口（按风险排序）
 
-### 1. JOIN 的 ON 条件里引用左表列会失败（高风险）
+### 0. 评测反馈：Lab 2 满分，Lab 1 全挂（最高优先级）
+
+2026-11-17 20:54 的评测结果（commit `952612157`）：
+
+| 项 | 结果 |
+| --- | --- |
+| 文件即数据库（Lab 2） | **50/50 满分** |
+| AI 函数增强（Lab 1） | **0**，12 个 `ai_function` 用例全部失败 |
+
+失败点每个用例都一样：
+
+```
+mysqltest: At line 24: query 'call DBMS_AI_SERVICE.DROP_AI_MODEL('enhance_complete')'
+failed with wrong errno 4012: 'Timeout, query has reached the maximum query timeout: 10000000(us)'
+```
+
+已排除：
+
+| 假设 | 结论 |
+| --- | --- |
+| mock 服务没起 | 不是。本地停掉 mock 后失败在**下一句** `ai_complete`（第 25 行），`DROP_AI_MODEL` 在本地永远正常返回 `11118`（模型不存在） |
+| 我们的代码把 `DROP_AI_MODEL` 弄坏了 | 不是。`max_concurrency` 改动只碰 CREATE/ALTER 路径（`add_column("max_concurrency", …)`），DROP 路径一行没动；本地完整序列（建表 → 插 LOB → 查 → drop 表 → DROP_AI_MODEL）正常 |
+| Lab 2 的改动干扰 | 不是，两边代码路径不交叉 |
+| 编译 / parser | 不是，评测已经跑起来了（Lab 2 满分） |
+
+两个待验证的线索：
+
+1. 评测机可能是集群刚起来就立刻跑用例，根服务还没就绪，根服务调用要等 10 秒超时
+   （`DROP_AI_MODEL` 要走一次根服务调用，本地集群起了很久所以不复现）；
+2. 内表 `__all_ai_model_endpoint` 加了 `max_concurrency` 列（官方 `ai_model_endpoint_ddl` 用例要求），
+   评测机可能复用了缓存集群，内表 schema 与代码不一致。**已回退该改动再提测验证**
+   （`732fd267f`，代价是 `ai_model_endpoint_ddl` 用例会失败，AI_COMPLETE 项少 3 分）。
+
+另外注意：平台报的失败行号（24）与我们仓库里的行号（18）不一致，说明平台用的是**隐藏测试文件**
+（官方用例 + 额外用例），本地看不到。
+
+### 1. JOIN 的 ON 条件里引用左表列会失败（已修）
 
 现象：JOIN 的 ON 条件里，带表别名的列引用解析失败。
 
@@ -125,12 +182,22 @@ select c.id, p.c1 from read_csv('...') c left join read_parquet('...') p on p.c1
 | 任意 × 2 | 成功 |
 | 相同列数 × 相同列数 | 成功 |
 
-也就是说“左表恰好 5 列”才正常，其余大部分组合失败。根因还没定位，
-怀疑与文件表列的 column id 取值有关（文件表的列 id 用的是列在文件里的下标，
-两个文件表的下标会撞）。
+也就是说“左表恰好 5 列”才正常，其余大部分组合失败。
 
-影响：官方用例 `file_sql_basic` 里没有 JOIN，**公开用例不受影响**；
-但其他队伍扩展的官方用例里有 `parquet left join csv`，隐藏用例很可能也有，⑦ 的 4 分会丢。
+**根因是 use-after-free，不是 column id**：文件表的列名来自 schema 推断，
+推断把列名放在一个局部 `std::vector` 里，函数返回后那段内存就没了，
+而表项的列名一直指着它。于是命名空间检查拿列名去比对的时���比的是已释放的内存——
+“5 列才正常”只是那块内存恰好没被复用的运气。这个 bug 有三层影响：
+
+1. 两个文件表 JOIN 时，ON 条件里带别名的列引用解析失败（`Unknown column`）；
+2. `select *` 的输出列名有可能是垃圾（官方用例里没暴露，因为运气好）；
+3. 列名进 `file_def` 后深拷贝进计划缓存时拷的也是垃圾。
+
+修法：列名在解析时拷进语句的内存（`66c115ad2`，合并提交 `952612157`，已推送到 PR）。
+修完 `parquet left join csv` 的输出与其他队伍录制的期望值逐行一致。
+
+影响：官方用例 `file_sql_basic` 里没有 JOIN，所以**公开用例从来没暴露过这个问题**；
+但其他队伍扩展的官方用例里有 `parquet left join csv`，隐藏用例很可能也有，⑦ 的 4 分本来会丢。
 
 ### 2. `COPY <表名> TO '文件'` 没实现（中高风险）
 
