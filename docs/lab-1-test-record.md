@@ -147,3 +147,22 @@ Lab 1 的五个分支都从 `lab1/integration`（`b6cc9ac51`）分出，合并�
 
 `lab1/ai-endpoint-max-concurrency` 修改了内表 `__all_ai_model_endpoint` 的结构，
 **已经存在的集群必须重建**，旧表没有 `max_concurrency` 列。
+
+### 合并后的分支的回归（2026-11-17）
+
+合并后的 `lab1/integration`（`cb00ad6c3`）重新编译并部署成一个**新建的集群**
+（旧集群的内表没有 `max_concurrency` 列，启动时报 `OB_VERSION_NOT_MATCH`，
+必须重建），本地起了 `tools/mock-ai-service/mock_ai_service.py 8000`
+作为 AI 服务，逐条跑了 AI 函数：
+
+| 检查 | 结果 | 备注 |
+| --- | --- | --- |
+| `ai_prompt` | 通过 | `ai_prompt('{0}/{0}/{1}', json_array(1,true), json_object('k',2))` 返回展开后的模板 |
+| `ai_complete`（openai） | 通过 | `length(ai_complete(...)) > 0` 为 1 |
+| `ai_complete`（ollama） | 通过 | 端点 provider 为 `ollama`，走 `/api/generate` |
+| `ai_embed` | 通过 | `json_length(ai_embed('m_embed','single-row'))` 为 768；请求 768 维时也是 768 |
+| `ai_rerank` | 通过 | 4 篇文档，首条是 `apple`，下标 0，与官方用例的期望一致 |
+| `max_concurrency` | 通过 | 建端点带 `max_concurrency:64`，视图与内表 `__all_ai_model_endpoint` 都是 64；`3.5` 与 `0` 报 `11116`，与官方用例的断言一致 |
+
+编译：`./build.sh release --make -j3`，无错误，二进制的 REVISION 是
+`1-cb00ad6c37af518e26b569498cd285b94f5c3c2f`。
