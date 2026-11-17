@@ -182,7 +182,7 @@ copy t to '/tmp/table_export.csv' (format csv, header, nullstr 'NULL');
 | P1 | `COPY` 补 `delimiter`/`quote`/`escape` | A（选项解析） | C | 导出后读回的值一致 |
 | P2 | `DESCRIBE` 支持 select 的结果列 | A（解析层） | B（类型推断的归属人） | `describe select id, name from read_csv(...)` 给出两列 |
 | P2 | `header = false` 时的列名（`_c1` 还是 `column0`） | — | B | 与官方 DuckDB 行为对齐，或确认隐藏用例的期望 |
-| P2 | 复现 2013 崩溃 | A |  whoever 能拿到 observer 日志/core | 有栈或有 core，或能证明与代码无关 |
+| P2 | 复现 2013 崩溃 | A | 谁手上有 observer 日志/core 谁做 | 有栈或有 core，或能证明与代码无关 |
 
 ### 为什么代码都在框架层，证据却要分出去
 
