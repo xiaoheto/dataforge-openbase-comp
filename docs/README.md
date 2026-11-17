@@ -9,13 +9,14 @@
 3. [Lab 2 两周执行计划](lab-2-execution-plan.md)：文件即数据库的契约、分工与验收门槛。
 4. [Lab 1 测试记录](lab-1-test-record.md)：在集成阶段持续填写可复现证据。
 5. [Lab 2 测试记录](lab-2-test-record.md)：记录各成员模块级验证的结果与未运行项。
-6. [课程 Lab 总览](competition-labs.md)：查看 Lab 1、Lab 2 的目标、评分标准和测试入口。
-7. [Lab 0：seekdb 架构导读](lab-0-seekdb-architecture.md)：理解 SQL 从解析到执行的主流程和源码目录。
-8. [seekdb 从源码构建与部署](seekdb-install-and-deploy.md)：完成依赖安装、编译、单机部署和 mysqltest 配置。
-9. [Lab 0 架构讲义（PDF）](lab-0-seekdb-architecture.pdf)：配合架构导读阅读。
-10. [Mock AI Service](../tools/mock-ai-service/README.md)：本地起公开测试所需的 8000 端口服务。
-11. [PowerContext 官方比赛题目与公开自测](../projects/powercontext/competition/README.md)：后续选择 PowerContext 赛题时阅读。
-12. [赛事总览原图](assets/competition-overview.png)：保留官网赛题分类原始截图。
+6. [交付说明](delivery-status.md)：当前交付到哪、提测 PR 在哪、还差什么、怎么接着做。
+7. [课程 Lab 总览](competition-labs.md)：查看 Lab 1、Lab 2 的目标、评分标准和测试入口。
+8. [Lab 0：seekdb 架构导读](lab-0-seekdb-architecture.md)：理解 SQL 从解析到执行的主流程和源码目录。
+9. [seekdb 从源码构建与部署](seekdb-install-and-deploy.md)：完成依赖安装、编译、单机部署和 mysqltest 配置。
+10. [Lab 0 架构讲义（PDF）](lab-0-seekdb-architecture.pdf)：配合架构导读阅读。
+11. [Mock AI Service](../tools/mock-ai-service/README.md)：本地起公开测试所需的 8000 端口服务。
+12. [PowerContext 官方比赛题目与公开自测](../projects/powercontext/competition/README.md)：后续选择 PowerContext 赛题时阅读。
+13. [赛事总览原图](assets/competition-overview.png)：保留官网赛题分类原始截图。
 
 ## 基本约定
 
