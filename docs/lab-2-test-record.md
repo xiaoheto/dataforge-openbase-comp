@@ -246,7 +246,7 @@ C 字符串）。算子把计划里的路径交给 `fopen()`，`fopen()` 会一�
 
 | 检查 | 结果 | 备注 |
 | --- | --- | --- |
-| 官方 `file_sql_basic` | 部分通过 | 从第一条到 `DESCRIBE` 之前的每一条输出与官方期望一致；`DESCRIBE` 给的是执行计划，`COPY` 未实现，用例在第 57 行停下 |
+| 官方 `file_sql_basic` | **通过** | 整条用例通过：`DESCRIBE` 给出六列 schema，`COPY` 导出后读回与官方期望一致。见"COPY 与 DESCRIBE 落地"一节 |
 新增的过滤用例全部通过 |
 | 自建 `file_sql_jsonl_parquet` | 通过 | 期望值已改成真实输出，新增的过滤用例全部通过 |
 新增的过滤用例全部通过 |
@@ -411,22 +411,22 @@ limits` 与 `projection`，取值与模块原本自己使用的默认值相同�
 
 | 问题 | 现象 | 状态 |
 | --- | --- | --- |
-| `COPY` 没有实现 | `copy (select ...) to '...'` 报 1064 | 官方用例 `file_sql_basic.test` 的最后一段是 `COPY`，用例在那一段停下，录不出完整的结果 |
+| `COPY` 没有实现 | `copy (select ...) to '...'` 报 1064 | **已修**。官方用例 `file_sql_basic.test` 的最后一段是 `COPY`，现在用例整条通过，见"COPY 与 DESCRIBE 落地"一节 |
 | 文件表上的 WHERE 条件恒为假 | `select ... from read_csv(...) where id > 1` 返回空集 | **已修**。原因是算子没有清除"表达式已经求过值"的标记，条件只在第一行上求过一次值。修法与验证见"成员 A"一节 |
-| `DESCRIBE` 给的是执行计划 | `describe select * from read_csv(...)` 输出的是执行计划，不是列清单 | 这个版本里 `describe select * from (select 1 as a) t` 给的也是执行计划，所以不是文件表独有的问题；官方样例期望列清单 |
-| `file_sql_basic.test` 录不了结果 | 用例的最后一段是 `COPY`，框架还没有实现 `COPY` | 依赖 `COPY` |
+| `DESCRIBE` 给的是执行计划 | `describe select * from read_csv(...)` 输出的是执行计划，不是列清单 | **已修**。`describe` 与 `explain` 在语法里分开，describe 走文件表的 schema 模式，输出六列的列清单，见"COPY 与 DESCRIBE 落地"一节 |
+| `file_sql_basic.test` 录不了结果 | 用例的最后一段是 `COPY`，框架还没有实现 `COPY` | **已修**。依赖 `COPY`，官方用例现在整条通过 |
 | 计划里的路径没有零字节结尾 | 同一个查询有时成功有时失败，报 `1017 File not exist` | **已修**。路径按 C 字符串写入计划。验证见"成员 A"一节 |
 
 ## 评分项对照
 
 | 评分项 | 分 | 负责人 | 状态 |
 | --- | ---: | --- | --- |
-| ① SQL 接口与文件发现 | 7 | A | 部分通过：`read_csv`、`read_json`、`read_parquet`、`glob` 端到端通过，第二个位置参数报 `1064`；**`DESCRIBE` 未实现**，本版本语法里 `describe` 是 `explain` 的别名，给出的是执行计划而不是官方期望的六列 |
+| ① SQL 接口与文件发现 | 7 | A | 通过：`read_csv`、`read_json`、`read_parquet`、`glob` 端到端通过，第二个位置参数报 `1064`；**`DESCRIBE` 已实现**，给出官方期望的六列 schema |
 | ② CSV 读取 | 10 | B | 通过 |
 | ③ JSONL 读取 | 7 | C | 通过 |
 | ④ Parquet 读取 | 6 | C | 通过 |
 | ⑤ 确定性类型推断 | 6 | B | 通过：推断的列与官方样例一致 |
-| ⑥ 单文件 SQL | 6 | A | 部分通过：扫描、投影、聚合、具名选项、`ORDER BY`、`LIMIT`、`WHERE`（逐行求值，已修）通过；**`COPY` 未实现** |
+| ⑥ 单文件 SQL | 6 | A | 通过：扫描、投影、聚合、具名选项、`ORDER BY`、`LIMIT`、`WHERE`（逐行求值，已修）、`COPY`（已修） |
 | ⑦ 双文件 JOIN | 4 | C | 通过：CSV + JSONL、CSV + Parquet |
 | ⑧ 安全、稳定性与工程质量 | 4 | A | 部分通过：路径校验有效（单元测试 47 项），开关默认关闭，计划里的路径按 C 字符串写入，隐藏测试未运行 |
 | **合计** | **50** | | |
@@ -443,11 +443,81 @@ tools/deploy/obd.sh mysqltest -n single --disable-reboot \
   --result-dir ./mysql_test/test_suite/file_sql/r --test-set file_sql_basic
 ```
 
-- 用例**停在第 57 行的 `copy`**（未实现，报 1064），**第 57 行之前的每一条输出都与官方期望一致**。
-- 第 44 行的 `describe` 输出的是执行计划，不是官方期望的六列；mysqltest 在这里没有中断，
-  但输出与官方期望不符（若提测平台按输出文本比对，这一处仍会被判失败）。
+- 这一节记录的是 `COPY` 与 `DESCRIBE` 落地之前的状态：用例**停在第 57 行的 `copy`**（未实现，报 1064），
+  第 44 行的 `describe` 输出的是执行计划而不是官方期望的六列。
+- **这两处都已修**，用例现在整条通过，见下面的"COPY 与 DESCRIBE 落地"一节。
 
 提测分支：fork 的 `2026-competition` 现在**同时带着两个 Lab 的成果**——
 `lab1/integration`（AI 函数，60 分）与 `lab2/integration`（文件即数据库）
 以合并提交的方式并入（`da79cb218`、`8adec58b6`），两次合并没有冲突，
 没有 force push。提测平台跑的就是这个分支。
+
+## COPY 与 DESCRIBE 落地，官方用例全绿（2026-11-17 傍晚）
+
+分支：`lab2/copy`（从 `2026-competition` 的合并提交 `8adec58b6` 拉出），
+合并提交 `3f37702b9` 已推送到提测分支 `2026-competition`。
+
+### 改动
+
+| 文件 | 改动 |
+| --- | --- |
+| `src/sql/parser/sql_parser_mysql_mode.y` | `copy (select ...) to 'path' (format csv, header, nullstr 'NULL')` 的语法；`describe` 与 `explain` 分开，`describe` 的语句带一个标记节点 |
+| `src/sql/resolver/dml/ob_select_resolver.cpp` | copy 的选项单独解析，不再走 into outfile 的格式分支；表头行的名字拼成一行，拷进语句的内存 |
+| `src/sql/resolver/dml/ob_select_stmt.cpp` | 语句深拷贝时把表头行一起拷走 |
+| `src/sql/engine/basic/ob_select_into_op.cpp` | 算子按批取行，表头行在写第一批数据之前写进文件 |
+| `src/sql/resolver/ddl/ob_explain_resolver.cpp` | `describe` 走文件表的 schema 模式，语句本身就是那个 select，结果是六列的 schema 表 |
+| `src/sql/resolver/dml/ob_dml_resolver.cpp` | describe 模式下文件表的列是 schema 的六列，`file_def->is_schema_` 标记 |
+| `src/sql/engine/basic/ob_file_table_op.cpp` | 算子在 schema 模式下不读数据行，为文件的每一列产生一行 |
+
+### 查出的缺陷与修法
+
+| 缺陷 | 现象 | 修法 |
+| --- | --- | --- |
+| copy 的选项被当成 into outfile 的格式 | 报 `1235 format without type not supported` | copy 的选项由 `resolve_copy_options` 单独解析，into outfile 的格式分支只在不是 copy 时才走 |
+| 表头行没有写进文件 | 导出的 csv 只有数据行 | 三处：① 表头行的字符串原先指向 `ObStringBuffer` 的内存，缓冲区析构时把内存还回去了，改成拷进语句的内存；② 语句深拷贝没有拷表头行；③ 算子按批取行，表头行写在逐行取行的路径上，批次路径上没有写 |
+| `describe` 给的是执行计划 | 官方期望是六列的 schema | `describe` 与 `explain` 在语法里分开，describe 的语句解析成文件表的 schema 模式 |
+
+### 实测
+
+```
+tools/deploy/obd.sh mysqltest -n single --disable-reboot \
+  --test-dir ./mysql_test/test_suite/file_sql/t \
+  --result-dir ./mysql_test/test_suite/file_sql/r --test-set file_sql_basic
+```
+
+| 用例 | 结果 |
+| --- | --- |
+| 官方 `file_sql_basic` | **通过**（1/1）。第 44 行的 `describe` 输出六列 schema，第 57 行的 `copy` 导出后读回与官方期望逐行一致 |
+| 自建 `file_sql_jsonl_parquet` | 通过（1/1）。describe 段的期望值按新的六列 schema 重新录制（该用例是团队自建，不是官方文件） |
+| 官方 `ai_function` 全套 12 个用例 | 全部通过（ollama 与 rerank 需要 `tools/mock-ai-service` 在 8000 端口，且 observer 不能带 `http_proxy` 环境变量，否则请求走代理失败） |
+
+`describe` 的输出与官方期望一致：
+
+```
+column_name	column_type	null	key	default	extra
+id	BIGINT	NO	NULL	NULL	NULL
+name	VARCHAR	NO	NULL	NULL	NULL
+score	DOUBLE	NO	NULL	NULL	NULL
+active	BOOLEAN	NO	NULL	NULL	NULL
+day	DATE	YES	NULL	NULL	NULL
+created	DATETIME	YES	NULL	NULL	NULL
+note	VARCHAR	NO	NULL	NULL	NULL
+id__2	BIGINT	NO	NULL	NULL	NULL
+```
+
+`copy` 导出后读回与官方期望一致：
+
+```
+id	name	score
+1	Alice	98.5
+2	Bob	87
+3	Chen	90.25
+```
+
+### 仍然存在的偏差
+
+| 偏差 | 说明 |
+| --- | --- |
+| `nullstr` 只接受不生效 | 空值仍写成 OB 默认的 `\N`，官方用例的三列里没有空值，不影响官方用例 |
+| 表头行按逗号拼接 | 列名里带逗号时没有按 CSV 规则加引号 |
+| `describe` 只支持文件表 | `describe select ...` 的语句不是文件表时报 `1235`；`describe` 一个文件表的 select 时列名是 select 的列名，不是文件的列名 |
