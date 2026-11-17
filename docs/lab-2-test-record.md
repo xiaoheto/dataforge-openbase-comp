@@ -432,3 +432,22 @@ limits` 与 `projection`，取值与模块原本自己使用的默认值相同�
 | **合计** | **50** | | |
 
 > 官方文字同时出现 50 分与"沿用 30 分"，口径待确认；此处按评分表相加的 50 分记录。
+
+## 官方用例的实测状态与提测分支（2026-11-17）
+
+用仓库自带的 mysqltest（`deps/3rd/u01/obclient/bin/mysqltest`）跑官方用例：
+
+```
+tools/deploy/obd.sh mysqltest -n single --disable-reboot \
+  --test-dir ./mysql_test/test_suite/file_sql/t \
+  --result-dir ./mysql_test/test_suite/file_sql/r --test-set file_sql_basic
+```
+
+- 用例**停在第 57 行的 `copy`**（未实现，报 1064），**第 57 行之前的每一条输出都与官方期望一致**。
+- 第 44 行的 `describe` 输出的是执行计划，不是官方期望的六列；mysqltest 在这里没有中断，
+  但输出与官方期望不符（若提测平台按输出文本比对，这一处仍会被判失败）。
+
+提测分支：fork 的 `2026-competition` 现在**同时带着两个 Lab 的成果**——
+`lab1/integration`（AI 函数，60 分）与 `lab2/integration`（文件即数据库）
+以合并提交的方式并入（`da79cb218`、`8adec58b6`），两次合并没有冲突，
+没有 force push。提测平台跑的就是这个分支。
